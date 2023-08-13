@@ -25,3 +25,5 @@ must
 → 4min - 20sec = 3分40秒が滞在  
 3分30秒でペナルティ実績あり
 
+**setting**  
+ギア比 rear sprocket 41T ('23純正から1Tロング)  
