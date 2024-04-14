@@ -6,13 +6,15 @@ import config
 print(__name__)
 app = Flask(__name__)
 
+
 # PostgreSQLへの接続
 conn = psycopg2.connect(
     user=config.DB_USER,        #ユーザ
     password=config.PASSWORD,  #パスワード
     host=config.HOST,       #ホスト名
     port=config.PORT,            #ポート
-    dbname=config.DATABASE)    #データベース名
+    dbname=config.DATABASE
+)    #データベース名
     
 @app.route('/')
 def get_version():
