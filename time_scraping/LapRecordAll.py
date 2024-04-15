@@ -26,7 +26,7 @@ for row in monitor_list:
     car_no = row["ID"]
     team_name = quote(row["TeamName"])
     race_class = row["ClassName"]
-    
+
     url = f"http://racenow-motegi-1.racelive.jp/pages/gap.html?carno={car_no}&team={team_name}&mode={roundtype}&raceclass={race_class}"
     links.append(url)
 
@@ -40,7 +40,7 @@ for link in links:
     time.sleep(3)
     element = driver.find_element(By.XPATH, '//*[@id="GapListArea"]/table')
     tdlist = element.find_elements(By.TAG_NAME, 'td')
-    
+
     # 空白を削除
     data = [elem.text for elem in tdlist if elem.text != '']
 
@@ -61,7 +61,7 @@ for link in links:
             segment.append('')
         formatted_data.append(segment)
 
-    df = pd.DataFrame(formatted_data, columns=['Lap', 'Name', 'Sec1', 'Sec2', 'Sec3', 'Speed', 'Sec4', 'Record'])
+    df = pd.DataFrame(formatted_data, columns=['lap', 'name', 'sec1', 'sec2', 'sec3', 'speed', 'sec4', 'record'])
     name = df['Name'].iloc[0]
     if name not in dfs:
         dfs[name] = df
