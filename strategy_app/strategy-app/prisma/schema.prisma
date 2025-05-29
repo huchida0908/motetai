@@ -1,0 +1,94 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ライダー管理
+model Rider {
+  id                String    @id @default(cuid())
+  name              String
+  expectedLapTime   Float     // 想定ラップタイム（秒）
+  defaultFuelRate   Float?    // デフォルト燃費（L/周）
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // リレーション
+  segments          Segment[]
+  actualLaps        ActualLap[]
+  
+  @@map("riders")
+}
+
+// 燃料タイプ管理
+model FuelType {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  fuelRate    Float     // 燃費（L/周）
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // リレーション
+  segments    Segment[]
+  
+  @@map("fuel_types")
+}
+
+// 区間管理
+model Segment {
+  id          String    @id @default(cuid())
+  startLap    Int       // 開始周
+  endLap      Int       // 終了周
+  riderId     String
+  fuelTypeId  String
+  isPitStop   Boolean   @default(false)
+  targetLapTime Float?  // 目標ラップタイム（秒）
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // リレーション
+  rider       Rider     @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  fuelType    FuelType  @relation(fields: [fuelTypeId], references: [id], onDelete: Cascade)
+  
+  @@map("segments")
+}
+
+// 実績ラップデータ（公式計時データから取得）
+model ActualLap {
+  id          String    @id @default(cuid())
+  lapNumber   Int       // 周回数
+  lapTime     Float     // ラップタイム（秒）
+  riderId     String?   // ライダーID（判明している場合）
+  timestamp   DateTime  // ラップ完了時刻
+  createdAt   DateTime  @default(now())
+  
+  // リレーション
+  rider       Rider?    @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  
+  @@unique([lapNumber])
+  @@map("actual_laps")
+}
+
+// レース設定
+model RaceConfig {
+  id              String    @id @default(cuid())
+  raceName        String
+  totalLaps       Int       // 総周回数
+  tankCapacity    Float     // タンク容量（L）
+  initialFuel     Float     // 初期燃料（L）
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@map("race_configs")
+}
