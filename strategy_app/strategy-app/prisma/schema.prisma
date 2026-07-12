@@ -1,8 +1,11 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Prisma schema — もて耐 レース戦略アプリ
+// 参考: https://pris.ly/d/prisma-schema
+//
+// 【DB 選定理由】サーキットは回線が不安定なため、リモート DB 依存を避け
+// ローカルファイルで完結する SQLite を採用（オフラインで動作）。
+// 戦略 PC でアプリを起動し、スマホは同一 LAN/ホットスポットで接続する運用を想定。
+// MySQL へ移す場合は provider と DATABASE_URL を変えるだけでよいよう、
+// enum を使わず条件・OUT/IN は String で保持している。
 
 generator client {
   provider = "prisma-client-js"
@@ -10,85 +13,159 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-// ライダー管理
+// ─────────────────────────────────────────────
+// ライダー（ドライバー）
+// ─────────────────────────────────────────────
 model Rider {
-  id                String    @id @default(cuid())
-  name              String
-  expectedLapTime   Float     // 想定ラップタイム（秒）
-  defaultFuelRate   Float?    // デフォルト燃費（L/周）
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  
-  // リレーション
-  segments          Segment[]
-  actualLaps        ActualLap[]
-  
+  id              String   @id @default(cuid())
+  name            String
+  expectedLapTime Float // 想定ラップタイム（秒）
+  defaultFuelRate Float? // デフォルト燃費（L/周）任意
+  color           String? // チャート等の表示色（#RRGGBB）
+  displayOrder    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  segments   Segment[]
+  actualLaps ActualLap[]
+  stints     Stint[]
+
   @@map("riders")
 }
 
-// 燃料タイプ管理
+// ─────────────────────────────────────────────
+// 燃料タイプ（計画エディタ用。Phase 3 で活用）
+// ─────────────────────────────────────────────
 model FuelType {
-  id          String    @id @default(cuid())
-  name        String    @unique
-  fuelRate    Float     // 燃費（L/周）
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  
-  // リレーション
-  segments    Segment[]
-  
+  id        String   @id @default(cuid())
+  name      String   @unique
+  fuelRate  Float // 燃費（L/周）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  segments Segment[]
+
   @@map("fuel_types")
 }
 
-// 区間管理
+// ─────────────────────────────────────────────
+// 区間（計画）: 開始周〜終了周にライダー/燃料/目標タイムを割り当てる
+// ─────────────────────────────────────────────
 model Segment {
-  id          String    @id @default(cuid())
-  startLap    Int       // 開始周
-  endLap      Int       // 終了周
-  riderId     String
-  fuelTypeId  String
-  isPitStop   Boolean   @default(false)
-  targetLapTime Float?  // 目標ラップタイム（秒）
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  
-  // リレーション
-  rider       Rider     @relation(fields: [riderId], references: [id], onDelete: Cascade)
-  fuelType    FuelType  @relation(fields: [fuelTypeId], references: [id], onDelete: Cascade)
-  
+  id            String   @id @default(cuid())
+  startLap      Int
+  endLap        Int
+  riderId       String
+  fuelTypeId    String
+  isPitStop     Boolean  @default(false)
+  targetLapTime Float? // 目標ラップタイム（秒）
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  rider    Rider    @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  fuelType FuelType @relation(fields: [fuelTypeId], references: [id], onDelete: Cascade)
+
   @@map("segments")
 }
 
-// 実績ラップデータ（公式計時データから取得）
-model ActualLap {
-  id          String    @id @default(cuid())
-  lapNumber   Int       // 周回数
-  lapTime     Float     // ラップタイム（秒）
-  riderId     String?   // ライダーID（判明している場合）
-  timestamp   DateTime  // ラップ完了時刻
-  createdAt   DateTime  @default(now())
-  
-  // リレーション
-  rider       Rider?    @relation(fields: [riderId], references: [id], onDelete: SetNull)
-  
-  @@unique([lapNumber])
-  @@map("actual_laps")
+// ─────────────────────────────────────────────
+// レース設定（時間制耐久）
+// Excel「実績/計画」シート左上の各パラメータに対応
+// ─────────────────────────────────────────────
+model RaceConfig {
+  id       String  @id @default(cuid())
+  raceName String
+  isActive Boolean @default(true)
+
+  // レース基本
+  raceDurationMin Float // レース時間（分）例: 420
+  courseLengthKm  Float // コース長（km）例: 4.801379
+  startedAt       DateTime? // レース開始時刻（レースクロック用。未開始は null）
+
+  // 燃料
+  tankCapacityL Float // タンク容量（L）
+  startFuelL    Float // スタート時の搭載燃料（L）
+
+  // ピット
+  pitLossSec  Float @default(240) // 想定ピットタイム（秒）
+  maxStintLap Int   @default(15) // 1 スティントの最大周回数
+
+  // 路面別 燃費（L/周）。Excel「燃料消費量」シートは実質フラット値のため定数で保持
+  fuelRateDry   Float @default(0.35) // ドライ通常
+  fuelRateWet   Float @default(0.32) // ウェット通常
+  fuelRateSc    Float @default(0.27) // セーフティカー
+  fuelRateOutIn Float @default(0.33) // アウト/インラップ
+
+  // 想定ラップタイム（秒）計画・予測用
+  assumedLapSec    Float @default(146) // 想定 Lap
+  assumedOutLapSec Float @default(160) // 想定 OUT-Lap
+  assumedInLapSec  Float @default(140) // 想定 IN-Lap
+  assumedWetLapSec Float @default(170) // 想定ウェット Lap
+  assumedScLapSec  Float @default(260) // 想定 SC タイム
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stints     Stint[]
+  actualLaps ActualLap[]
+
+  @@map("race_configs")
 }
 
-// レース設定
-model RaceConfig {
-  id              String    @id @default(cuid())
-  raceName        String
-  totalLaps       Int       // 総周回数
-  tankCapacity    Float     // タンク容量（L）
-  initialFuel     Float     // 初期燃料（L）
-  isActive        Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
-  @@map("race_configs")
+// ─────────────────────────────────────────────
+// スティント（連続走行区間の実績）: 給油〜次の給油まで
+// Excel「実績」シートの 1 ブロック（縦テーブル）に対応
+// ─────────────────────────────────────────────
+model Stint {
+  id           String   @id @default(cuid())
+  raceConfigId String
+  stintNumber  Int // 何番目のスティントか（1 始まり）
+  riderId      String?
+  refuelL      Float // このスティント開始時（給油後）の搭載燃料（L）
+  plannedLaps  Int? // 予定周回数
+  startedAt    DateTime?
+  endedAt      DateTime?
+  note         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  raceConfig RaceConfig  @relation(fields: [raceConfigId], references: [id], onDelete: Cascade)
+  rider      Rider?      @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  laps       ActualLap[]
+
+  @@unique([raceConfigId, stintNumber])
+  @@map("stints")
+}
+
+// ─────────────────────────────────────────────
+// 実績ラップ（1 周ごとの記録）
+// Excel「実績」シートの各行（Lap/OUT-IN/路面/タイム/ガス）に対応
+// ─────────────────────────────────────────────
+model ActualLap {
+  id           String @id @default(cuid())
+  raceConfigId String
+  stintId      String?
+  riderId      String?
+
+  lapNumber  Int // レース通算の周回数
+  lapTimeSec Float // ラップタイム（秒, 0.001 精度）
+
+  condition String  @default("D") // 路面: D=ドライ / W=ウェット / SC=セーフティカー / EX1 / EX2
+  outIn     String? // "OUT" | "IN" | null（通常周）
+
+  fuelUsedL Float? // この周の燃料使用量（未指定なら路面から自動算出）
+
+  timestamp DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  raceConfig RaceConfig @relation(fields: [raceConfigId], references: [id], onDelete: Cascade)
+  stint      Stint?     @relation(fields: [stintId], references: [id], onDelete: SetNull)
+  rider      Rider?     @relation(fields: [riderId], references: [id], onDelete: SetNull)
+
+  @@unique([raceConfigId, lapNumber])
+  @@map("actual_laps")
 }

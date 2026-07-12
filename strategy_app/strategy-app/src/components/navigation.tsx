@@ -3,11 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Fuel, 
-  Route, 
+import {
+  LayoutDashboard,
   Settings,
   Timer
 } from 'lucide-react';
@@ -19,23 +16,8 @@ const navigationItems = [
     icon: LayoutDashboard,
   },
   {
-    title: 'ライダー管理',
-    href: '/riders',
-    icon: Users,
-  },
-  {
-    title: '燃料タイプ',
-    href: '/fuel-types',
-    icon: Fuel,
-  },
-  {
-    title: '区間エディタ',
-    href: '/segments',
-    icon: Route,
-  },
-  {
-    title: 'リアルタイム',
-    href: '/realtime',
+    title: 'ライブ入力',
+    href: '/live',
     icon: Timer,
   },
   {
