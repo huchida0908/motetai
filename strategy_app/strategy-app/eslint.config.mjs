@@ -10,6 +10,10 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  // Prisma が自動生成するクライアント（minified 含む）は lint 対象外にする
+  {
+    ignores: ["src/generated/**"],
+  },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
 ];
 

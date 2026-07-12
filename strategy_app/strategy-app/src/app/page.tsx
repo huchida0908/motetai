@@ -4,6 +4,14 @@ import { Fuel, Timer, Users, Flag } from 'lucide-react';
 import { getLiveState } from '@/lib/live';
 import { formatLapTime, formatMinSec } from '@/lib/time';
 import { CONDITION_LABEL, CONDITION_COLOR } from '@/lib/constants';
+import LapChart from '@/components/LapChart';
+
+function bankLabel(bankSec: number | null): { text: string; className: string } {
+  if (bankSec == null) return { text: '-', className: '' };
+  const sign = bankSec >= 0 ? '+' : '−';
+  const cls = bankSec >= 0 ? 'text-emerald-600' : 'text-destructive';
+  return { text: `${sign}${formatMinSec(Math.abs(bankSec))}`, className: cls };
+}
 
 // 常に最新の DB 状態で描画する
 export const dynamic = 'force-dynamic';
@@ -60,6 +68,33 @@ export default async function Dashboard() {
           sub={t.clock ? `経過 ${formatMinSec(t.clock.elapsedSec)}` : 'レース開始で計測開始'} />
       </div>
 
+      {/* レースクロック予測 */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <StatCard title="着地予測(周)" value={t.projectedTotalLaps != null ? `${t.projectedTotalLaps} 周` : '未計測'}
+          sub={t.clock ? `現在 ${t.totalLaps} 周` : 'レース開始で計測'} />
+        <StatCard title="次ピットまで" value={`${t.lapsUntilNextPit} 周`}
+          sub={t.nextPitInSec != null ? `約 ${formatMinSec(t.nextPitInSec)} 後` : ''} />
+        <StatCard title="残ピット回数" value={t.remainingPits != null ? `${t.remainingPits} 回` : '-'} />
+        {(() => { const b = bankLabel(t.bankSec); return (
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">対予定(貯金/借金)</CardTitle></CardHeader>
+            <CardContent><div className={`text-2xl font-bold font-mono ${b.className}`}>{b.text}</div>
+              <p className="text-xs text-muted-foreground">＋=速い / −=遅い（想定 {formatLapTime(t.assumedLapSec)}比）</p></CardContent>
+          </Card>
+        ); })()}
+      </div>
+
+      {/* 計画 vs 実績チャート */}
+      <Card>
+        <CardHeader>
+          <CardTitle>ラップ推移（計画 vs 実績）</CardTitle>
+          <CardDescription>ピット周は除外。橙の点線が想定タイム</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LapChart series={live.series} assumedLapSec={t.assumedLapSec} />
+        </CardContent>
+      </Card>
+
       {/* ペース指標 */}
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard title="ドライ平均" value={formatLapTime(t.avgDry)} />
@@ -91,7 +126,7 @@ export default async function Dashboard() {
                     <td className="py-1.5 px-2 font-mono">{l.lapNumber}</td>
                     <td className="py-1.5 px-2">{riderName(l.riderId)}</td>
                     <td className="py-1.5 px-2">
-                      <span className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
+                      <span className="inline-block px-2 py-0.5 rounded-full text-xs text-white whitespace-nowrap"
                         style={{ backgroundColor: CONDITION_COLOR[l.condition] ?? '#6b7280' }}>
                         {CONDITION_LABEL[l.condition] ?? l.condition}
                       </span>

@@ -37,9 +37,16 @@ interface LiveResponse {
     fuelRemainingL: number | null;
     possibleLaps: number | null;
     recent3Avg: number | null;
+    avgLapSec: number | null;
     avgDry: number | null;
     avgWet: number | null;
     clock: { elapsedSec: number; remainingSec: number } | null;
+    lapsUntilNextPit: number;
+    projectedTotalLaps: number | null;
+    remainingPits: number | null;
+    nextPitInSec: number | null;
+    bankSec: number | null;
+    assumedLapSec: number;
   };
   recentLaps: RecentLap[];
 }
@@ -193,6 +200,7 @@ export default function LivePage() {
           <h1 className="text-2xl font-bold tracking-tight">ライブ入力</h1>
           <p className="text-muted-foreground text-sm">
             {live.race.raceName} ／ 第 {live.currentStint?.stintNumber ?? '-'} スティント（{riderName(live.currentStint?.riderId ?? null)}）
+            ・ 通算 {t.totalLaps}周 / スティント {t.lapsInStint}周
           </p>
         </div>
         {!live.race.startedAt && (
@@ -212,10 +220,19 @@ export default function LivePage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Tile label="残燃料" value={t.fuelRemainingL != null ? `${t.fuelRemainingL.toFixed(2)} L` : '-'} accent />
         <Tile label="可能Lap数" value={t.possibleLaps != null ? t.possibleLaps.toFixed(1) : '-'} accent />
-        <Tile label="現スティント" value={`${t.lapsInStint}${live.currentStint?.plannedLaps ? ` / ${live.currentStint.plannedLaps}` : ''} 周`} />
-        <Tile label="通算周回" value={`${t.totalLaps} 周`} />
+        <Tile
+          label="次ピットまで"
+          value={`${t.lapsUntilNextPit} 周`}
+          sub={t.nextPitInSec != null ? `約 ${formatMinSec(t.nextPitInSec)} 後` : undefined}
+          accent
+        />
         <Tile label="直近3周平均" value={formatLapTime(t.recent3Avg)} />
         <Tile label="残り時間" value={t.clock ? formatMinSec(t.clock.remainingSec) : '未計測'} />
+        <Tile
+          label="着地予測"
+          value={t.projectedTotalLaps != null ? `${t.projectedTotalLaps} 周` : '未計測'}
+          sub={t.remainingPits != null ? `残ピット ${t.remainingPits}回` : undefined}
+        />
       </div>
 
       {/* 入力パネル */}
@@ -232,25 +249,31 @@ export default function LivePage() {
                 inputMode="numeric"
                 value={minVal}
                 onChange={(e) => setMinVal(e.target.value)}
-                className="w-20 h-14 text-2xl text-center font-mono"
+                className="w-20 h-16 text-3xl text-center font-mono"
               />
             </div>
-            <div className="text-2xl pb-3">:</div>
+            <div className="text-3xl pb-3">:</div>
             <div>
               <label className="block text-xs text-muted-foreground mb-1">秒（小数可 例 26.271）</label>
               <Input
                 ref={secRef}
+                autoFocus
                 inputMode="decimal"
                 value={secVal}
                 onChange={(e) => setSecVal(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && recordLap()}
                 placeholder="26.271"
-                className="w-40 h-14 text-2xl text-center font-mono"
+                className="w-44 h-16 text-3xl text-center font-mono"
               />
             </div>
             <Button variant="outline" onClick={copyPrevious} className="h-10">
               直前周コピー
             </Button>
+            <div className="pb-1 text-sm text-muted-foreground">
+              → <span className="font-mono text-base text-foreground">
+                {secVal.trim() !== '' ? formatLapTime(minSecToSeconds(Number(minVal), Number(secVal))) : '—'}
+              </span>
+            </div>
           </div>
 
           {/* 路面 */}
@@ -309,13 +332,13 @@ export default function LivePage() {
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            <Button onClick={recordLap} disabled={busy} className="h-14 px-8 text-lg">
+            <Button onClick={recordLap} disabled={busy} className="h-16 text-xl w-full sm:w-auto sm:px-12 font-bold">
               記録する
             </Button>
-            <Button onClick={undoLast} disabled={busy} variant="outline" className="h-14">
+            <Button onClick={undoLast} disabled={busy} variant="outline" className="h-16 flex-1 sm:flex-none">
               直前を取消
             </Button>
-            <Button onClick={() => setShowPit((v) => !v)} disabled={busy} variant="secondary" className="h-14">
+            <Button onClick={() => setShowPit((v) => !v)} disabled={busy} variant="secondary" className="h-16 flex-1 sm:flex-none">
               ピットイン
             </Button>
           </div>
@@ -381,7 +404,7 @@ export default function LivePage() {
                     <td className="py-1.5 px-2">{riderName(l.riderId)}</td>
                     <td className="py-1.5 px-2">
                       <span
-                        className="inline-block px-2 py-0.5 rounded-full text-xs text-white"
+                        className="inline-block px-2 py-0.5 rounded-full text-xs text-white whitespace-nowrap"
                         style={{ backgroundColor: CONDITION_COLOR[l.condition] ?? '#6b7280' }}
                       >
                         {CONDITION_LABEL[l.condition] ?? l.condition}
@@ -409,12 +432,13 @@ export default function LivePage() {
   );
 }
 
-function Tile({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Tile({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
     <Card className={accent ? 'border-primary/40' : ''}>
       <CardContent className="p-4">
         <div className="text-xs text-muted-foreground">{label}</div>
         <div className={`text-xl font-bold font-mono ${accent ? 'text-primary' : ''}`}>{value}</div>
+        {sub ? <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div> : null}
       </CardContent>
     </Card>
   );

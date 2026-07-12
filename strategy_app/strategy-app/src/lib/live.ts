@@ -5,7 +5,10 @@ import {
   computeStintState,
   recentGreenAverage,
   averageByCondition,
+  normalRateForCondition,
   raceClock,
+  projectRace,
+  scheduleBank,
   type FuelRates,
   type LapLike,
 } from '@/lib/race-calc';
@@ -64,6 +67,39 @@ export async function getLiveState(nowMs: number) {
   const allLapLikes = laps as unknown as LapLike[];
   const clock = raceClock(race.startedAt?.toISOString() ?? null, race.raceDurationMin, nowMs);
 
+  // ペース: 直近3周 → ドライ平均 → 想定値 の順でフォールバック
+  const recent3 = recentGreenAverage(allLapLikes, 3);
+  const avgLapSec = recent3 ?? averageByCondition(allLapLikes, 'D') ?? race.assumedLapSec;
+
+  // 次ピットまで / スティント容量（燃料 or 上限の小さい方）
+  const lastCondition = laps.length > 0 ? laps[laps.length - 1].condition : 'D';
+  const normalRate = normalRateForCondition(lastCondition, rates);
+  const stintLapsFull = Math.min(race.maxStintLap, Math.floor(race.tankCapacityL / (normalRate || 0.35)));
+  const possibleLaps = currentState?.possibleLaps ?? 0;
+  const lapsInStint = currentState?.lapsInStint ?? 0;
+  const lapsUntilNextPit = Math.max(0, Math.min(Math.floor(possibleLaps), race.maxStintLap - lapsInStint));
+
+  const projection = clock
+    ? projectRace({
+        remainingSec: clock.remainingSec,
+        avgLapSec,
+        totalLaps: laps.length,
+        lapsUntilNextPit,
+        stintLaps: stintLapsFull,
+        pitLossSec: race.pitLossSec,
+      })
+    : null;
+
+  const bankSec = scheduleBank(allLapLikes, race.assumedLapSec);
+
+  // チャート用の系列（計画 vs 実績）
+  const series = laps.map((l) => ({
+    lap: l.lapNumber,
+    timeSec: l.lapTimeSec,
+    condition: l.condition,
+    outIn: l.outIn ?? null,
+  }));
+
   // 直近ラップ一覧（最大 20 件）に燃料情報を付与
   const recentLaps = laps
     .slice(-20)
@@ -94,14 +130,22 @@ export async function getLiveState(nowMs: number) {
       : null,
     tiles: {
       totalLaps: laps.length,
-      lapsInStint: currentState?.lapsInStint ?? 0,
+      lapsInStint,
       fuelRemainingL: currentState?.fuelRemainingL ?? null,
       possibleLaps: currentState?.possibleLaps ?? null,
-      recent3Avg: recentGreenAverage(allLapLikes, 3),
+      recent3Avg: recent3,
+      avgLapSec,
       avgDry: averageByCondition(allLapLikes, 'D'),
       avgWet: averageByCondition(allLapLikes, 'W'),
       clock,
+      lapsUntilNextPit,
+      projectedTotalLaps: projection?.projectedTotalLaps ?? null,
+      remainingPits: projection?.remainingPits ?? null,
+      nextPitInSec: projection?.nextPitInSec ?? null,
+      bankSec,
+      assumedLapSec: race.assumedLapSec,
     },
+    series,
     recentLaps,
   };
 }

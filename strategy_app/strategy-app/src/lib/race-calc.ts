@@ -109,3 +109,51 @@ export function raceClock(
   const remainingSec = raceDurationMin * 60 - elapsedSec;
   return { elapsedSec, remainingSec };
 }
+
+export interface ProjectInput {
+  remainingSec: number; // レース残り時間
+  avgLapSec: number; // 想定ラップ（直近ペース or 想定値）
+  totalLaps: number; // 現在の通算周回
+  lapsUntilNextPit: number; // 次ピットまで走れる周回（燃料 or スティント上限の小さい方）
+  stintLaps: number; // ピット後 1 スティントで走れる周回（燃料 or 上限）
+  pitLossSec: number; // 1 回のピットロス（秒）
+}
+
+// 残り時間をラップ＋ピットで前方シミュレーションし、着地周回・残りピット回数を推定する。
+export function projectRace(p: ProjectInput) {
+  let t = p.remainingSec;
+  let laps = 0;
+  let pits = 0;
+  let stintCap = Math.max(0, Math.floor(p.lapsUntilNextPit));
+  const stintLaps = Math.max(1, Math.floor(p.stintLaps));
+  const avg = p.avgLapSec > 0 ? p.avgLapSec : 146;
+
+  for (let i = 0; i < 2000; i++) {
+    if (stintCap <= 0) {
+      // これ以上走るにはピットが必要。ピット＋1周ぶんの時間が無ければ終了
+      if (t < p.pitLossSec + avg) break;
+      t -= p.pitLossSec;
+      pits += 1;
+      stintCap = stintLaps;
+    }
+    if (t < avg) break; // 次の 1 周を回る時間が無い
+    t -= avg;
+    laps += 1;
+    stintCap -= 1;
+  }
+
+  return {
+    projectedRemainingLaps: laps,
+    projectedTotalLaps: p.totalLaps + laps,
+    remainingPits: pits,
+    lapsUntilNextPit: Math.max(0, Math.floor(p.lapsUntilNextPit)),
+    nextPitInSec: Math.max(0, Math.floor(p.lapsUntilNextPit)) * avg,
+  };
+}
+
+// 対予定の貯金/借金（秒）。通常周について Σ(想定 - 実績)。正=貯金(速い)、負=借金。
+export function scheduleBank(laps: LapLike[], assumedLapSec: number): number | null {
+  const green = laps.filter((l) => !l.outIn && l.condition !== 'SC');
+  if (green.length === 0) return null;
+  return green.reduce((acc, l) => acc + (assumedLapSec - l.lapTimeSec), 0);
+}
