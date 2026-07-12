@@ -3,11 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Fuel, 
-  Route, 
+import {
+  LayoutDashboard,
   Settings,
   Timer
 } from 'lucide-react';
@@ -19,23 +16,8 @@ const navigationItems = [
     icon: LayoutDashboard,
   },
   {
-    title: 'ライダー管理',
-    href: '/riders',
-    icon: Users,
-  },
-  {
-    title: '燃料タイプ',
-    href: '/fuel-types',
-    icon: Fuel,
-  },
-  {
-    title: '区間エディタ',
-    href: '/segments',
-    icon: Route,
-  },
-  {
-    title: 'リアルタイム',
-    href: '/realtime',
+    title: 'ライブ入力',
+    href: '/live',
     icon: Timer,
   },
   {
@@ -49,30 +31,26 @@ export function Navigation() {
   const pathname = usePathname();
 
   return (
-    <nav className="w-64 bg-card border-r border-border p-6">
-      <div className="mb-8">
-        <h1 className="text-xl font-bold text-foreground">
-          耐久レース戦略
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          戦略支援ツール
-        </p>
+    <nav className="bg-card border-b border-border p-4 md:border-b-0 md:border-r md:w-64 md:min-h-screen md:p-6">
+      <div className="mb-3 md:mb-8">
+        <h1 className="text-lg md:text-xl font-bold text-foreground">耐久レース戦略</h1>
+        <p className="hidden md:block text-sm text-muted-foreground">戦略支援ツール</p>
       </div>
-      
-      <ul className="space-y-2">
+
+      <ul className="flex gap-2 overflow-x-auto md:flex-col md:overflow-visible">
         {navigationItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;
-          
+
           return (
-            <li key={item.href}>
+            <li key={item.href} className="shrink-0">
               <Link
                 href={item.href}
                 className={cn(
-                  'flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
+                  'flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap',
                   isActive
                     ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent',
                 )}
               >
                 <Icon className="h-5 w-5" />

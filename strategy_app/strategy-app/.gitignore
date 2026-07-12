@@ -41,3 +41,12 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# prisma sqlite (ローカルDB)
+/prisma/*.db
+/prisma/*.db-journal
+
+# リポジトリ直下の .gitignore に Python 用の `lib/` 除外があり、
+# Next.js の src/lib（prisma シングルトン等の核心ファイル）が巻き込まれるため打ち消す。
+!src/lib/
+!src/lib/**

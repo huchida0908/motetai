@@ -1,160 +1,166 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Fuel, Timer, Users, TrendingUp } from "lucide-react";
+import Link from 'next/link';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Fuel, Timer, Users, Flag } from 'lucide-react';
+import { getLiveState } from '@/lib/live';
+import { formatLapTime, formatMinSec } from '@/lib/time';
+import { CONDITION_LABEL, CONDITION_COLOR } from '@/lib/constants';
+import LapChart from '@/components/LapChart';
 
-export default function Dashboard() {
+function bankLabel(bankSec: number | null): { text: string; className: string } {
+  if (bankSec == null) return { text: '-', className: '' };
+  const sign = bankSec >= 0 ? '+' : '−';
+  const cls = bankSec >= 0 ? 'text-emerald-600' : 'text-destructive';
+  return { text: `${sign}${formatMinSec(Math.abs(bankSec))}`, className: cls };
+}
+
+// 常に最新の DB 状態で描画する
+export const dynamic = 'force-dynamic';
+
+export default async function Dashboard() {
+  const live = await getLiveState(Date.now());
+
+  if (!live.race) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold tracking-tight">ダッシュボード</h1>
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">
+            アクティブなレースがありません。
+            <br />
+            <code className="text-xs">npx tsx prisma/seed.ts</code> でシード投入、または「設定」で作成してください。
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const { tiles: t, riders, currentStint, recentLaps } = live;
+  const riderName = (id: string | null) => riders.find((r) => r.id === id)?.name ?? '-';
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">ダッシュボード</h1>
-        <p className="text-muted-foreground">
-          レースの現在状況と戦略情報を確認できます
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">ダッシュボード</h1>
+          <p className="text-muted-foreground">{live.race.raceName} の現在状況</p>
+        </div>
+        <Link
+          href="/live"
+          className="inline-flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90"
+        >
+          <Timer className="h-4 w-4" /> ライブ入力へ
+        </Link>
       </div>
 
       {/* 概要カード */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              現在の燃料残量
-            </CardTitle>
-            <Fuel className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">15.2L</div>
-            <p className="text-xs text-muted-foreground">
-              タンク容量の 76%
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              現在周回数
-            </CardTitle>
-            <Timer className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">42周</div>
-            <p className="text-xs text-muted-foreground">
-              総 200周 中
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              現在ライダー
-            </CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">田中 太郎</div>
-            <p className="text-xs text-muted-foreground">
-              平均ラップ: 1:45.234
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              次回ピット予定
-            </CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">58周</div>
-            <p className="text-xs text-muted-foreground">
-              約 28分後
-            </p>
-          </CardContent>
-        </Card>
+        <StatCard icon={<Fuel className="h-4 w-4 text-muted-foreground" />} title="現在の燃料残量"
+          value={t.fuelRemainingL != null ? `${t.fuelRemainingL.toFixed(2)} L` : '-'}
+          sub={t.possibleLaps != null ? `あと約 ${t.possibleLaps.toFixed(1)} 周` : ''} />
+        <StatCard icon={<Timer className="h-4 w-4 text-muted-foreground" />} title="通算周回"
+          value={`${t.totalLaps} 周`}
+          sub={currentStint ? `第${currentStint.stintNumber}スティント ${t.lapsInStint}周目` : ''} />
+        <StatCard icon={<Users className="h-4 w-4 text-muted-foreground" />} title="現在の走者"
+          value={riderName(currentStint?.riderId ?? null)}
+          sub={t.recent3Avg != null ? `直近3周平均 ${formatLapTime(t.recent3Avg)}` : ''} />
+        <StatCard icon={<Flag className="h-4 w-4 text-muted-foreground" />} title="残り時間"
+          value={t.clock ? formatMinSec(t.clock.remainingSec) : '未計測'}
+          sub={t.clock ? `経過 ${formatMinSec(t.clock.elapsedSec)}` : 'レース開始で計測開始'} />
       </div>
 
-      {/* メインコンテンツエリア */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4">
-          <CardHeader>
-            <CardTitle>ラップタイム推移</CardTitle>
-            <CardDescription>
-              計画 vs 実績のラップタイム比較
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pl-2">
-            <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-              ラップタイムチャート（実装予定）
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="col-span-3">
-          <CardHeader>
-            <CardTitle>燃料予測</CardTitle>
-            <CardDescription>
-              現在の消費ペースに基づく予測
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">残り可能周回数</span>
-                <span className="text-lg font-bold">38周</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">燃費</span>
-                <span className="text-lg font-bold">0.4L/周</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">次回給油量</span>
-                <span className="text-lg font-bold">12.8L</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* レースクロック予測 */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <StatCard title="着地予測(周)" value={t.projectedTotalLaps != null ? `${t.projectedTotalLaps} 周` : '未計測'}
+          sub={t.clock ? `現在 ${t.totalLaps} 周` : 'レース開始で計測'} />
+        <StatCard title="次ピットまで" value={`${t.lapsUntilNextPit} 周`}
+          sub={t.nextPitInSec != null ? `約 ${formatMinSec(t.nextPitInSec)} 後` : ''} />
+        <StatCard title="残ピット回数" value={t.remainingPits != null ? `${t.remainingPits} 回` : '-'} />
+        {(() => { const b = bankLabel(t.bankSec); return (
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">対予定(貯金/借金)</CardTitle></CardHeader>
+            <CardContent><div className={`text-2xl font-bold font-mono ${b.className}`}>{b.text}</div>
+              <p className="text-xs text-muted-foreground">＋=速い / −=遅い（想定 {formatLapTime(t.assumedLapSec)}比）</p></CardContent>
+          </Card>
+        ); })()}
       </div>
 
-      {/* ピット戦略 */}
+      {/* 計画 vs 実績チャート */}
       <Card>
         <CardHeader>
-          <CardTitle>ピット戦略</CardTitle>
-          <CardDescription>
-            今後のピットイン予定とライダー交代
-          </CardDescription>
+          <CardTitle>ラップ推移（計画 vs 実績）</CardTitle>
+          <CardDescription>ピット周は除外。橙の点線が想定タイム</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            <div className="grid grid-cols-4 gap-4 text-sm font-medium text-muted-foreground">
-              <div>周回</div>
-              <div>ライダー</div>
-              <div>作業内容</div>
-              <div>予定時刻</div>
-            </div>
-            <div className="space-y-2">
-              <div className="grid grid-cols-4 gap-4 text-sm">
-                <div>58周</div>
-                <div>田中 太郎 → 佐藤 花子</div>
-                <div>給油 + ライダー交代</div>
-                <div>14:25</div>
-              </div>
-              <div className="grid grid-cols-4 gap-4 text-sm">
-                <div>95周</div>
-                <div>佐藤 花子 → 鈴木 次郎</div>
-                <div>給油 + ライダー交代</div>
-                <div>15:45</div>
-              </div>
-              <div className="grid grid-cols-4 gap-4 text-sm">
-                <div>140周</div>
-                <div>鈴木 次郎 → 田中 太郎</div>
-                <div>給油 + ライダー交代</div>
-                <div>17:10</div>
-              </div>
-            </div>
+          <LapChart series={live.series} assumedLapSec={t.assumedLapSec} />
+        </CardContent>
+      </Card>
+
+      {/* ペース指標 */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard title="ドライ平均" value={formatLapTime(t.avgDry)} />
+        <StatCard title="ウェット平均" value={formatLapTime(t.avgWet)} />
+        <StatCard title="直近3周平均" value={formatLapTime(t.recent3Avg)} />
+      </div>
+
+      {/* 直近ラップ */}
+      <Card>
+        <CardHeader>
+          <CardTitle>直近ラップ</CardTitle>
+          <CardDescription>最新の記録</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-muted-foreground border-b">
+                <tr>
+                  <th className="text-left py-2 px-2">Lap</th>
+                  <th className="text-left py-2 px-2">走者</th>
+                  <th className="text-left py-2 px-2">路面</th>
+                  <th className="text-right py-2 px-2">タイム</th>
+                  <th className="text-right py-2 px-2">残L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentLaps.slice(0, 10).map((l) => (
+                  <tr key={l.id} className="border-b border-border/50">
+                    <td className="py-1.5 px-2 font-mono">{l.lapNumber}</td>
+                    <td className="py-1.5 px-2">{riderName(l.riderId)}</td>
+                    <td className="py-1.5 px-2">
+                      <span className="inline-block px-2 py-0.5 rounded-full text-xs text-white whitespace-nowrap"
+                        style={{ backgroundColor: CONDITION_COLOR[l.condition] ?? '#6b7280' }}>
+                        {CONDITION_LABEL[l.condition] ?? l.condition}
+                      </span>
+                      {l.outIn ? <span className="ml-1 text-xs">{l.outIn}</span> : null}
+                    </td>
+                    <td className="py-1.5 px-2 text-right font-mono">{formatLapTime(l.lapTimeSec)}</td>
+                    <td className="py-1.5 px-2 text-right font-mono">{l.fuel ? l.fuel.fuelRemainingL.toFixed(2) : '-'}</td>
+                  </tr>
+                ))}
+                {recentLaps.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="text-center py-6 text-muted-foreground">まだラップがありません</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function StatCard({ icon, title, value, sub }: { icon?: React.ReactNode; title: string; value: string; sub?: string }) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        {icon}
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold font-mono">{value}</div>
+        {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
+      </CardContent>
+    </Card>
   );
 }
