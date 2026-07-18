@@ -10,7 +10,7 @@ import LapChart from '@/components/LapChart';
 function bankLabel(bankSec: number | null): { text: string; className: string } {
   if (bankSec == null) return { text: '-', className: '' };
   const sign = bankSec >= 0 ? '+' : '−';
-  const cls = bankSec >= 0 ? 'text-emerald-600' : 'text-destructive';
+  const cls = bankSec >= 0 ? 'text-emerald-400' : 'text-destructive';
   return { text: `${sign}${formatMinSec(Math.abs(bankSec))}`, className: cls };
 }
 
@@ -42,7 +42,15 @@ export default async function Dashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">ダッシュボード</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">ダッシュボード</h1>
+            {live.race.startedAt && (
+              <span className="inline-flex items-center gap-1.5 rounded-sm border border-primary/40 bg-primary/10 px-2 py-0.5">
+                <span className="live-dot h-2 w-2 rounded-full bg-primary" />
+                <span className="font-display text-xs font-bold tracking-[0.22em] text-primary">LIVE</span>
+              </span>
+            )}
+          </div>
           <p className="text-muted-foreground">{live.race.raceName} の現在状況</p>
         </div>
         <Link
@@ -82,8 +90,8 @@ export default async function Dashboard() {
           const b = bankLabel(hasPlan ? t.planBankSec : t.bankSec);
           return (
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{hasPlan ? '対計画(貯金/借金)' : '対予定(貯金/借金)'}</CardTitle></CardHeader>
-            <CardContent><div className={`text-2xl font-bold font-mono ${b.className}`}>{b.text}</div>
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium tracking-[0.1em]">{hasPlan ? '対計画(貯金/借金)' : '対予定(貯金/借金)'}</CardTitle></CardHeader>
+            <CardContent><div className={`font-display text-3xl font-bold ${b.className}`}>{b.text}</div>
               <p className="text-xs text-muted-foreground">＋=速い / −=遅い（{hasPlan ? '周単位計画比' : `想定 ${formatLapTime(t.assumedLapSec)}比`}）</p></CardContent>
           </Card>
         ); })()}
@@ -94,7 +102,7 @@ export default async function Dashboard() {
         <CardHeader>
           <CardTitle>ラップ推移（計画 vs 実績）</CardTitle>
           <CardDescription>
-            {live.planSeries.length > 0 ? '橙=計画 / 青=実績。右上で表示を切替（ラップタイム / 周回数×経過時間 / 燃料残量）' : 'ピット周は除外。橙の点線が想定タイム'}
+            {live.planSeries.length > 0 ? '青点線=計画 / 赤=実績。右上で表示を切替（ラップタイム / 周回数×経過時間 / 燃料残量）' : 'ピット周は除外。黄の点線が想定タイム'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -168,12 +176,12 @@ function StatCard({ icon, title, value, sub }: { icon?: React.ReactNode; title: 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardTitle className="text-sm font-medium tracking-[0.1em]">{title}</CardTitle>
         {icon}
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold font-mono">{value}</div>
-        {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
+        <div className="font-display text-3xl font-bold">{value}</div>
+        {sub ? <p className="text-xs text-muted-foreground font-mono">{sub}</p> : null}
       </CardContent>
     </Card>
   );

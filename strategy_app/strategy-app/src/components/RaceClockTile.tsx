@@ -42,27 +42,37 @@ function useClockText(startedAt: string | null, raceDurationMin: number) {
 export default function RaceClockTile({ startedAt, raceDurationMin, variant = 'stat' }: Props) {
   const { value, sub } = useClockText(startedAt, raceDurationMin);
 
+  // 残り10分を切ったら赤発光で警告（終了・未計測時は通常色）
+  const isUrgent = (() => {
+    if (!startedAt) return false;
+    const m = /^(\d+):(\d{2})$/.exec(value);
+    if (!m) return false;
+    const sec = Number(m[1]) * 60 + Number(m[2]);
+    return sec > 0 && sec <= 600 && sub.startsWith('経過');
+  })();
+  const valueClass = isUrgent ? 'text-primary text-glow-red' : '';
+
   if (variant === 'tile') {
     return (
-      <Card>
+      <Card className="accent-bar">
         <CardContent className="p-4">
-          <div className="text-xs text-muted-foreground">残り時間</div>
-          <div className="text-xl font-bold font-mono">{value}</div>
-          {sub ? <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div> : null}
+          <div className="text-xs tracking-[0.14em] text-muted-foreground">残り時間</div>
+          <div className={`font-display text-2xl font-bold ${valueClass}`}>{value}</div>
+          {sub ? <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">{sub}</div> : null}
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card>
+    <Card className="accent-bar">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">残り時間</CardTitle>
-        <Flag className="h-4 w-4 text-muted-foreground" />
+        <CardTitle className="text-sm font-medium tracking-[0.1em]">残り時間</CardTitle>
+        <Flag className="h-4 w-4 text-primary/70" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold font-mono">{value}</div>
-        {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
+        <div className={`font-display text-3xl font-bold ${valueClass}`}>{value}</div>
+        {sub ? <p className="text-xs text-muted-foreground font-mono">{sub}</p> : null}
       </CardContent>
     </Card>
   );

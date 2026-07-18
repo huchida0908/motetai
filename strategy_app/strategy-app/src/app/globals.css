@@ -1,26 +1,45 @@
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════════════
+   ピットウォール・テレメトリー テーマ（ダーク固定）
+   F1 のピット壁モニターを意識した黒基調＋レーシングレッド。
+   チャート系列色は dataviz 検証済み（実績=赤 / 計画=青, CVD ΔE 26.7）
+   ══════════════════════════════════════════════════ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --card: #ffffff;
-  --card-foreground: #171717;
-  --popover: #ffffff;
-  --popover-foreground: #171717;
-  --primary: #2563eb;
+  color-scheme: dark;
+
+  --background: #07090d;
+  --foreground: #e6edf3;
+  --card: #0d1117;
+  --card-foreground: #e6edf3;
+  --popover: #10151c;
+  --popover-foreground: #e6edf3;
+
+  /* レーシングレッド */
+  --primary: #e11d2e;
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #0f172a;
-  --muted: #f8fafc;
-  --muted-foreground: #64748b;
-  --accent: #f1f5f9;
-  --accent-foreground: #0f172a;
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --ring: #2563eb;
-  --radius: 0.5rem;
+
+  --secondary: #161d27;
+  --secondary-foreground: #e6edf3;
+  --muted: #121821;
+  --muted-foreground: #8b98a9;
+  --accent: #1a2230;
+  --accent-foreground: #e6edf3;
+
+  /* 文字用の赤（ダーク面で読める明るさ） */
+  --destructive: #f87171;
+  --destructive-foreground: #0a0c10;
+
+  --border: #1d2531;
+  --input: #27303e;
+  --ring: #e11d2e;
+  --radius: 0.375rem;
+
+  /* チャート系列色（validate_palette.js 全チェック PASS） */
+  --chart-actual: #ef4444; /* 実績 */
+  --chart-plan: #3b82f6; /* 計画 */
+  --chart-wet: #22d3ee; /* ウェット周マーカー（ステータス扱い・リング＋ラベル併用） */
+  --chart-sc: #f59e0b; /* SC 周マーカー（同上） */
 }
 
 @theme inline {
@@ -48,43 +67,63 @@
   --radius: var(--radius);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --card: #0a0a0a;
-    --card-foreground: #ededed;
-    --popover: #0a0a0a;
-    --popover-foreground: #ededed;
-    --primary: #3b82f6;
-    --primary-foreground: #ffffff;
-    --secondary: #1e293b;
-    --secondary-foreground: #f8fafc;
-    --muted: #1e293b;
-    --muted-foreground: #94a3b8;
-    --accent: #1e293b;
-    --accent-foreground: #f8fafc;
-    --destructive: #ef4444;
-    --destructive-foreground: #ffffff;
-    --border: #334155;
-    --input: #334155;
-    --ring: #3b82f6;
-  }
+body {
+  /* 微細なグリッド＋上部にごく薄い赤のグロー（計測モニター風） */
+  background:
+    radial-gradient(1100px 480px at 80% -12%, rgba(225, 29, 46, 0.08), transparent 60%),
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    var(--background);
+  background-size: auto, 34px 34px, 34px 34px, auto;
+  background-attachment: fixed;
+  color: var(--foreground);
+  font-family: var(--font-sans), "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+/* 大きな計測値用ディスプレイ書体（数字・ラテンのみ Rajdhani、和文はフォールバック） */
+.font-display {
+  font-family: var(--font-rajdhani), var(--font-geist-mono), monospace;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 発光テキスト（残り時間の警告など） */
+.text-glow-red {
+  text-shadow: 0 0 16px rgba(239, 68, 68, 0.55);
+}
+
+/* タイル左端のレーシングアクセントバー */
+.accent-bar {
+  position: relative;
+  overflow: hidden;
+}
+.accent-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--primary), rgba(225, 29, 46, 0.25));
+}
+
+/* LIVE インジケータのパルス */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+  50% { opacity: 0.75; box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+.live-dot {
+  animation: live-pulse 1.6s ease-in-out infinite;
 }
 
 /* カスタムスクロールバー */
 ::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--muted);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {

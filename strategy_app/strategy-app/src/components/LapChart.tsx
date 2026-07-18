@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { formatLapTime, formatMinSec } from '@/lib/time';
-import { CONDITION_COLOR, CONDITION_LABEL } from '@/lib/constants';
+import { CONDITION_LABEL, CHART_COLORS } from '@/lib/constants';
 
 export interface LapPoint {
   lap: number;
@@ -175,16 +175,16 @@ function LapTimeChart({
         {plan.length === 0 && (
           <ReferenceLine
             y={assumedLapSec}
-            stroke="#f59e0b"
+            stroke={CHART_COLORS.reference}
             strokeDasharray="4 4"
-            label={{ value: `想定 ${formatLapTime(assumedLapSec)}`, position: 'insideTopRight', fontSize: 11, fill: '#b45309' }}
+            label={{ value: `想定 ${formatLapTime(assumedLapSec)}`, position: 'insideTopRight', fontSize: 11, fill: CHART_COLORS.reference }}
           />
         )}
         {plan.length > 0 && (
           <Line
             type="monotone"
             dataKey="plan"
-            stroke="#f59e0b"
+            stroke={CHART_COLORS.plan}
             strokeWidth={2}
             strokeDasharray="6 4"
             dot={false}
@@ -195,14 +195,30 @@ function LapTimeChart({
         <Line
           type="monotone"
           dataKey="actual"
-          stroke="var(--primary)"
+          stroke={CHART_COLORS.actual}
           strokeWidth={2}
           isAnimationActive={false}
           connectNulls
           dot={(props: { cx?: number; cy?: number; payload?: { condition?: string }; index?: number }) => {
             const { cx, cy, payload } = props;
             if (cx == null || cy == null || !payload?.condition) return <circle key={props.index} r={0} />;
-            return <circle key={props.index} cx={cx} cy={cy} r={3.5} fill={CONDITION_COLOR[payload.condition] ?? 'var(--primary)'} />;
+            // ドライ（通常）は線と同色の小ドット。W/SC は状態マーカーとして
+            // サーフェス色のリング付きで大きく浮かせる（色以外の手掛かりを併用）
+            const c = payload.condition;
+            if (c === 'W' || c === 'SC') {
+              return (
+                <circle
+                  key={props.index}
+                  cx={cx}
+                  cy={cy}
+                  r={4.5}
+                  fill={c === 'W' ? CHART_COLORS.wet : CHART_COLORS.sc}
+                  stroke="var(--card)"
+                  strokeWidth={2}
+                />
+              );
+            }
+            return <circle key={props.index} cx={cx} cy={cy} r={2.5} fill={CHART_COLORS.actual} />;
           }}
         />
       </LineChart>
@@ -271,9 +287,9 @@ function ProgressChart({
         {durationSec != null && (
           <ReferenceLine
             x={durationSec}
-            stroke="#dc2626"
+            stroke="#f87171"
             strokeDasharray="4 4"
-            label={{ value: 'レース終了', position: 'insideTopRight', fontSize: 11, fill: '#dc2626' }}
+            label={{ value: 'レース終了', position: 'insideTopRight', fontSize: 11, fill: '#f87171' }}
           />
         )}
         {plan.length > 0 && (
@@ -282,7 +298,7 @@ function ProgressChart({
             name="plan"
             type="stepAfter"
             dataKey="laps"
-            stroke="#f59e0b"
+            stroke={CHART_COLORS.plan}
             strokeWidth={2}
             strokeDasharray="6 4"
             dot={false}
@@ -295,7 +311,7 @@ function ProgressChart({
             name="actual"
             type="stepAfter"
             dataKey="laps"
-            stroke="var(--primary)"
+            stroke={CHART_COLORS.actual}
             strokeWidth={2}
             dot={false}
             isAnimationActive={false}
@@ -349,9 +365,9 @@ function FuelChart({ fuelSeries }: { fuelSeries: FuelSeries }) {
         <Legend formatter={(v) => (v === 'plan' ? '計画' : '実績')} wrapperStyle={{ fontSize: 12 }} />
         <ReferenceLine
           y={0}
-          stroke="#dc2626"
+          stroke={CHART_COLORS.reference}
           strokeDasharray="4 4"
-          label={{ value: 'ガス欠', position: 'insideBottomRight', fontSize: 11, fill: '#dc2626' }}
+          label={{ value: 'ガス欠', position: 'insideBottomRight', fontSize: 11, fill: CHART_COLORS.reference }}
         />
         {plan.length > 0 && (
           <Line
@@ -359,7 +375,7 @@ function FuelChart({ fuelSeries }: { fuelSeries: FuelSeries }) {
             name="plan"
             type="linear"
             dataKey="fuelL"
-            stroke="#f59e0b"
+            stroke={CHART_COLORS.plan}
             strokeWidth={2}
             strokeDasharray="6 4"
             dot={false}
@@ -372,7 +388,7 @@ function FuelChart({ fuelSeries }: { fuelSeries: FuelSeries }) {
             name="actual"
             type="linear"
             dataKey="fuelL"
-            stroke="var(--primary)"
+            stroke={CHART_COLORS.actual}
             strokeWidth={2}
             dot={false}
             isAnimationActive={false}

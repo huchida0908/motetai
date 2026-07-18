@@ -436,11 +436,11 @@ export default function LivePage() {
 
 function Tile({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
-    <Card className={accent ? 'border-primary/40' : ''}>
+    <Card className={accent ? 'accent-bar border-primary/30' : ''}>
       <CardContent className="p-4">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className={`text-xl font-bold font-mono ${accent ? 'text-primary' : ''}`}>{value}</div>
-        {sub ? <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div> : null}
+        <div className="text-xs tracking-[0.14em] text-muted-foreground">{label}</div>
+        <div className={`font-display text-2xl font-bold ${accent ? 'text-primary' : ''}`}>{value}</div>
+        {sub ? <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">{sub}</div> : null}
       </CardContent>
     </Card>
   );

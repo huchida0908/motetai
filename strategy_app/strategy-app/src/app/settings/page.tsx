@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { toDatetimeLocal } from '@/lib/time';
+import { formatLapTime, minSecToSeconds, toDatetimeLocal } from '@/lib/time';
 
 interface Race {
   id: string;
@@ -56,7 +56,9 @@ export default function SettingsPage() {
   const [race, setRace] = useState<Race | null>(null);
   const [riders, setRiders] = useState<Rider[]>([]);
   const [msg, setMsg] = useState('');
-  const [newRider, setNewRider] = useState({ name: '', expectedLapTime: '146', color: '#3b82f6' });
+  const [newRider, setNewRider] = useState({ name: '', lapMin: '2', lapSec: '26', color: '#3b82f6' });
+  // 編集中ドライバー（分・秒に分解して保持）。null なら編集していない
+  const [editRider, setEditRider] = useState<{ id: string; lapMin: string; lapSec: string } | null>(null);
 
   // 開始/終了時刻（datetime-local 値）。両方入力するとレース時間(分)を自動計算する
   const [startTime, setStartTime] = useState('');
@@ -127,11 +129,39 @@ export default function SettingsPage() {
     await fetch('/api/riders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newRider),
+      body: JSON.stringify({
+        name: newRider.name,
+        color: newRider.color,
+        expectedLapTime: minSecToSeconds(Number(newRider.lapMin), Number(newRider.lapSec)),
+      }),
     });
-    setNewRider({ name: '', expectedLapTime: '146', color: '#3b82f6' });
+    setNewRider({ name: '', lapMin: '2', lapSec: '26', color: '#3b82f6' });
     await load();
   }, [newRider, load]);
+
+  // 既存ドライバーのタイム編集を開始（秒を分・秒に分解してフォームへ）
+  const startEditRider = useCallback((r: Rider) => {
+    const min = Math.floor(r.expectedLapTime / 60);
+    const sec = Number((r.expectedLapTime - min * 60).toFixed(3));
+    setEditRider({ id: r.id, lapMin: String(min), lapSec: String(sec) });
+  }, []);
+
+  const saveEditRider = useCallback(async () => {
+    if (!editRider) return;
+    const sec = minSecToSeconds(Number(editRider.lapMin), Number(editRider.lapSec));
+    if (sec <= 0) {
+      setMsg('タイムは 0 より大きくしてください');
+      setTimeout(() => setMsg(''), 2000);
+      return;
+    }
+    await fetch(`/api/riders/${editRider.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedLapTime: sec }),
+    });
+    setEditRider(null);
+    await load();
+  }, [editRider, load]);
 
   const deleteRider = useCallback(
     async (id: string) => {
@@ -231,10 +261,40 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             {riders.map((r) => (
-              <div key={r.id} className="flex items-center gap-3 text-sm">
+              <div key={r.id} className="flex items-center gap-3 text-sm flex-wrap">
                 <span className="inline-block w-4 h-4 rounded-full" style={{ backgroundColor: r.color ?? '#999' }} />
                 <span className="w-28 font-medium">{r.name}</span>
-                <span className="text-muted-foreground">想定 {r.expectedLapTime.toFixed(2)}s</span>
+                {editRider?.id === r.id ? (
+                  <>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={editRider.lapMin}
+                      onChange={(e) => setEditRider({ ...editRider, lapMin: e.target.value })}
+                      className="w-16"
+                      aria-label="分"
+                    />
+                    <span className="text-muted-foreground">分</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={editRider.lapSec}
+                      onChange={(e) => setEditRider({ ...editRider, lapSec: e.target.value })}
+                      className="w-24"
+                      aria-label="秒"
+                    />
+                    <span className="text-muted-foreground">秒</span>
+                    <Button size="sm" onClick={saveEditRider}>保存</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditRider(null)}>キャンセル</Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-muted-foreground">想定 {formatLapTime(r.expectedLapTime)}</span>
+                    <Button variant="ghost" size="sm" onClick={() => startEditRider(r)}>編集</Button>
+                  </>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => deleteRider(r.id)} className="ml-auto text-destructive">
                   削除
                 </Button>
@@ -247,15 +307,32 @@ export default function SettingsPage() {
               <Input value={newRider.name} onChange={(e) => setNewRider({ ...newRider, name: e.target.value })} className="w-32" />
             </div>
             <div>
-              <label className="block text-xs text-muted-foreground mb-1">想定Lap(秒)</label>
+              <label className="block text-xs text-muted-foreground mb-1">想定Lap 分</label>
               <Input
                 type="number"
-                step="0.001"
-                value={newRider.expectedLapTime}
-                onChange={(e) => setNewRider({ ...newRider, expectedLapTime: e.target.value })}
-                className="w-28"
+                min="0"
+                step="1"
+                value={newRider.lapMin}
+                onChange={(e) => setNewRider({ ...newRider, lapMin: e.target.value })}
+                className="w-16"
               />
             </div>
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">秒</label>
+              <Input
+                type="number"
+                min="0"
+                step="0.001"
+                value={newRider.lapSec}
+                onChange={(e) => setNewRider({ ...newRider, lapSec: e.target.value })}
+                className="w-24"
+              />
+            </div>
+            <span className="text-sm text-muted-foreground pb-2">
+              = {newRider.lapSec.trim() !== '' || newRider.lapMin.trim() !== ''
+                ? formatLapTime(minSecToSeconds(Number(newRider.lapMin), Number(newRider.lapSec)))
+                : '—'}
+            </span>
             <div>
               <label className="block text-xs text-muted-foreground mb-1">色</label>
               <Input

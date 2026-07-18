@@ -446,7 +446,7 @@ export default function PlanPage() {
       {error && (
         <div className="bg-destructive/10 text-destructive border border-destructive/30 rounded-md px-4 py-2 text-sm">{error}</div>
       )}
-      {msg && <div className="bg-emerald-500/10 text-emerald-700 border border-emerald-500/30 rounded-md px-4 py-2 text-sm">{msg}</div>}
+      {msg && <div className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-md px-4 py-2 text-sm">{msg}</div>}
 
       {tab === 'edit' ? (
         <>
@@ -550,8 +550,8 @@ export default function PlanPage() {
                       <th className="text-left py-2 px-2">周回数</th>
                       <th className="text-left py-2 px-2">目標ラップ</th>
                       <th className="text-left py-2 px-2">給油量L</th>
-                      <th className="text-right py-2 px-2">開始燃料(自動)</th>
-                      <th className="text-right py-2 px-2">終了時残L</th>
+                      <th className="text-right py-2 px-2 whitespace-nowrap">開始燃料(自動)</th>
+                      <th className="text-right py-2 px-2 whitespace-nowrap">終了時残L</th>
                       <th className="py-2 px-2"></th>
                     </tr>
                   </thead>
@@ -618,11 +618,11 @@ export default function PlanPage() {
                             />
                           )}
                         </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
+                        <td className="py-1.5 px-2 text-right font-mono text-muted-foreground whitespace-nowrap">
                           {draftFuel?.stintStartFuel[i + 1] != null ? `${draftFuel.stintStartFuel[i + 1].toFixed(2)} L` : '-'}
                         </td>
                         <td
-                          className={`py-1.5 px-2 text-right font-mono ${
+                          className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${
                             draftFuel != null && (draftFuel.stintEndFuel[i + 1] ?? 0) < 0
                               ? 'text-destructive font-bold'
                               : 'text-muted-foreground'
@@ -653,7 +653,7 @@ export default function PlanPage() {
                 </table>
               </div>
               <Button variant="outline" onClick={addDraft}>＋ スティント追加</Button>
-              {dirty && <p className="text-xs text-amber-600">未保存の変更があります。「保存（再展開）」で周単位計画に反映されます</p>}
+              {dirty && <p className="text-xs text-amber-400">未保存の変更があります。「保存（再展開）」で周単位計画に反映されます</p>}
             </CardContent>
           </Card>
 
@@ -742,7 +742,7 @@ export default function PlanPage() {
                             <>
                               <Button variant="ghost" size="sm" onClick={() => startEditLap(l)}>編集</Button>
                               {l.isOverride && (
-                                <Button variant="ghost" size="sm" className="text-amber-600" onClick={() => clearLapOverride(l.lapNumber)}>
+                                <Button variant="ghost" size="sm" className="text-amber-400" onClick={() => clearLapOverride(l.lapNumber)}>
                                   解除
                                 </Button>
                               )}
@@ -829,7 +829,7 @@ export default function PlanPage() {
                           <td className="py-1 px-2 text-xs">
                             {p.outIn ?? ''}
                             {a?.outIn && a.outIn !== p.outIn ? (
-                              <span className="text-amber-600 ml-1">実績:{a.outIn}</span>
+                              <span className="text-amber-400 ml-1">実績:{a.outIn}</span>
                             ) : null}
                           </td>
                           <td className="py-1 px-2 text-right font-mono">{formatLapTime(p.plannedTimeSec)}</td>
@@ -876,7 +876,7 @@ export default function PlanPage() {
 // 差分の色分け: 負（計画より速い）= 緑、正 = 赤
 function diffClass(diff: number | null): string {
   if (diff == null) return '';
-  return diff <= 0 ? 'text-emerald-600' : 'text-destructive';
+  return diff <= 0 ? 'text-emerald-400' : 'text-destructive';
 }
 
 function SummaryTile({ label, value, sub, warn, good }: { label: string; value: string; sub?: string; warn?: boolean; good?: boolean }) {
@@ -884,7 +884,7 @@ function SummaryTile({ label, value, sub, warn, good }: { label: string; value: 
     <Card className={warn ? 'border-destructive/50' : ''}>
       <CardContent className="p-4">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className={`text-xl font-bold font-mono ${warn ? 'text-destructive' : good === true ? 'text-emerald-600' : good === false ? 'text-destructive' : ''}`}>
+        <div className={`font-display text-2xl font-bold ${warn ? 'text-destructive' : good === true ? 'text-emerald-400' : good === false ? 'text-destructive' : ''}`}>
           {value}
         </div>
         {sub ? <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div> : null}
