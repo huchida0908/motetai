@@ -6,7 +6,7 @@ export async function GET() {
   return NextResponse.json({ riders });
 }
 
-// ドライバー追加。body: { name, expectedLapTime?, defaultFuelRate?, color? }
+// ライダー追加。body: { name, expectedLapTime?, defaultFuelRate?, color? }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ rider }, { status: 201 });
   } catch (error) {
-    console.error('ドライバー追加エラー:', error);
-    return NextResponse.json({ error: 'ドライバーの追加に失敗しました' }, { status: 500 });
+    console.error('ライダー追加エラー:', error);
+    return NextResponse.json({ error: 'ライダーの追加に失敗しました' }, { status: 500 });
   }
 }

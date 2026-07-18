@@ -9,6 +9,7 @@ export interface PlanStintInput {
   plannedLaps: number;
   targetLapSec: number | null; // null → 想定 Lap を使用
   refuelL: number; // ピットでの給油量（追加L）。スティント1では未使用
+  tireChange?: boolean; // スティント開始時のピットインでタイヤ交換するか（時間は pitLossSec に込み）
   note?: string | null;
 }
 
@@ -301,6 +302,7 @@ export function generateInitialPlan(input: GenerateInput, riders: RiderLite[]): 
       plannedLaps: laps,
       targetLapSec,
       refuelL: input.tankCapacityL, // 満タン給油（追加L。キャップで実質「満タンまで」）
+      tireChange: false,
     });
   }
 

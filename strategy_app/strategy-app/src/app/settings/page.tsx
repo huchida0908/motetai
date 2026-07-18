@@ -57,8 +57,8 @@ export default function SettingsPage() {
   const [riders, setRiders] = useState<Rider[]>([]);
   const [msg, setMsg] = useState('');
   const [newRider, setNewRider] = useState({ name: '', lapMin: '2', lapSec: '26', color: '#3b82f6' });
-  // 編集中ドライバー（分・秒に分解して保持）。null なら編集していない
-  const [editRider, setEditRider] = useState<{ id: string; lapMin: string; lapSec: string } | null>(null);
+  // 編集中ライダー（分・秒に分解して保持）。null なら編集していない
+  const [editRider, setEditRider] = useState<{ id: string; name: string; lapMin: string; lapSec: string } | null>(null);
 
   // 開始/終了時刻（datetime-local 値）。両方入力するとレース時間(分)を自動計算する
   const [startTime, setStartTime] = useState('');
@@ -139,15 +139,20 @@ export default function SettingsPage() {
     await load();
   }, [newRider, load]);
 
-  // 既存ドライバーのタイム編集を開始（秒を分・秒に分解してフォームへ）
+  // 既存ライダーの名前・タイム編集を開始（秒を分・秒に分解してフォームへ）
   const startEditRider = useCallback((r: Rider) => {
     const min = Math.floor(r.expectedLapTime / 60);
     const sec = Number((r.expectedLapTime - min * 60).toFixed(3));
-    setEditRider({ id: r.id, lapMin: String(min), lapSec: String(sec) });
+    setEditRider({ id: r.id, name: r.name, lapMin: String(min), lapSec: String(sec) });
   }, []);
 
   const saveEditRider = useCallback(async () => {
     if (!editRider) return;
+    if (!editRider.name.trim()) {
+      setMsg('名前を入力してください');
+      setTimeout(() => setMsg(''), 2000);
+      return;
+    }
     const sec = minSecToSeconds(Number(editRider.lapMin), Number(editRider.lapSec));
     if (sec <= 0) {
       setMsg('タイムは 0 より大きくしてください');
@@ -157,7 +162,7 @@ export default function SettingsPage() {
     await fetch(`/api/riders/${editRider.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedLapTime: sec }),
+      body: JSON.stringify({ name: editRider.name, expectedLapTime: sec }),
     });
     setEditRider(null);
     await load();
@@ -165,7 +170,7 @@ export default function SettingsPage() {
 
   const deleteRider = useCallback(
     async (id: string) => {
-      if (!confirm('このドライバーを削除しますか？')) return;
+      if (!confirm('このライダーを削除しますか？')) return;
       await fetch(`/api/riders/${id}`, { method: 'DELETE' });
       await load();
     },
@@ -225,7 +230,8 @@ export default function SettingsPage() {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                両方入力するとレース時間(分)を自動計算します。開始時刻のみ空欄の場合は従来どおり「レース開始」ボタンで計測開始
+                両方入力するとレース時間(分)を自動計算します。開始時刻のみ空欄の場合は従来どおり「レース開始」ボタンで計測開始。
+                開始時刻は「スケジュール」ページの時刻表示の基準にもなります
               </p>
             )}
           </div>
@@ -259,16 +265,21 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>ドライバー</CardTitle>
+          <CardTitle>ライダー</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             {riders.map((r) => (
               <div key={r.id} className="flex items-center gap-3 text-sm flex-wrap">
                 <span className="inline-block w-4 h-4 rounded-full" style={{ backgroundColor: r.color ?? '#999' }} />
-                <span className="w-28 font-medium">{r.name}</span>
                 {editRider?.id === r.id ? (
                   <>
+                    <Input
+                      value={editRider.name}
+                      onChange={(e) => setEditRider({ ...editRider, name: e.target.value })}
+                      className="w-28"
+                      aria-label="名前"
+                    />
                     <Input
                       type="number"
                       min="0"
@@ -294,6 +305,7 @@ export default function SettingsPage() {
                   </>
                 ) : (
                   <>
+                    <span className="w-28 font-medium">{r.name}</span>
                     <span className="text-muted-foreground">想定 {formatLapTime(r.expectedLapTime)}</span>
                     <Button variant="ghost" size="sm" onClick={() => startEditRider(r)}>編集</Button>
                   </>

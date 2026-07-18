@@ -143,7 +143,20 @@ export default async function Dashboard() {
           {/* ピット */}
           <Card>
             <CardContent className="p-4 space-y-2">
-              <PanelLabel>Pit Window / 次ピットまで</PanelLabel>
+              <div className="flex items-center justify-between gap-2">
+                <PanelLabel>Pit Window / 次ピットまで</PanelLabel>
+                {t.nextPitTireChange != null && (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] font-bold whitespace-nowrap ${
+                      t.nextPitTireChange
+                        ? 'bg-amber-500/15 text-amber-400 border border-amber-500/40'
+                        : 'bg-muted text-muted-foreground border border-border'
+                    }`}
+                  >
+                    🛞 {t.nextPitTireChange ? 'タイヤ交換あり' : 'タイヤ交換なし'}
+                  </span>
+                )}
+              </div>
               <div className="font-display text-4xl font-bold">
                 {t.lapsUntilNextPit} <span className="text-lg text-muted-foreground font-semibold">周</span>
               </div>

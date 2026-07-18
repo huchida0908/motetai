@@ -1,23 +1,24 @@
-// Prisma schema（SQLite 用）— もて耐 レース戦略アプリ
-// 参考: https://pris.ly/d/prisma-schema
+// Prisma schema（PostgreSQL / Neon 用）— もて耐 レース戦略アプリ
 //
 // 【切替式 DB 構成】
-// - schema.prisma          … SQLite（サーキットは回線が不安定なためオフライン完結）★このファイル
-// - schema.postgres.prisma … Neon（PostgreSQL。リモートアクセス/デプロイ向け）
+// - schema.prisma          … SQLite（サーキットでのオフライン運用向け）
+// - schema.postgres.prisma … Neon（PostgreSQL。リモートアクセス/デプロイ向け）★このファイル
 // 切替は `npm run db:use:sqlite` / `npm run db:use:neon`（scripts/use-db.mjs が
 // .env の DATABASE_URL を書き換えて prisma generate を実行する）。
 //
-// ★★ モデル定義は schema.postgres.prisma と完全に同一に保つこと。★★
+// ★★ モデル定義は schema.prisma と完全に同一に保つこと。★★
 // モデルを変更したら必ず両方のファイルを更新する。
-// enum を使わず条件・OUT/IN を String で保持しているのは DB 間の互換性のため。
 
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
+  // Vercel（Amazon Linux）のサーバーレス関数で動くよう Linux 用クエリエンジンも同梱する。
+  // native = 生成した環境（ローカル/Vercelビルド）用。
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

@@ -50,3 +50,6 @@ next-env.d.ts
 # Next.js の src/lib（prisma シングルトン等の核心ファイル）が巻き込まれるため打ち消す。
 !src/lib/
 !src/lib/**
+
+# DB migration dump (contains data)
+/prisma/migration-data.json

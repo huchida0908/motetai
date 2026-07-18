@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
+  CalendarClock,
   ClipboardList,
   LayoutDashboard,
   Settings,
@@ -28,6 +29,12 @@ const navigationItems = [
     en: 'STRATEGY',
     href: '/plan',
     icon: ClipboardList,
+  },
+  {
+    title: 'スケジュール',
+    en: 'DAY PLAN',
+    href: '/schedule',
+    icon: CalendarClock,
   },
   {
     title: '設定',

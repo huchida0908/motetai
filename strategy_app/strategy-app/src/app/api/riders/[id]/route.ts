@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// ドライバー更新
+// ライダー更新
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   try {
     const { id } = await params;
@@ -18,19 +18,19 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const rider = await prisma.rider.update({ where: { id }, data });
     return NextResponse.json({ rider });
   } catch (error) {
-    console.error('ドライバー更新エラー:', error);
-    return NextResponse.json({ error: 'ドライバーの更新に失敗しました' }, { status: 500 });
+    console.error('ライダー更新エラー:', error);
+    return NextResponse.json({ error: 'ライダーの更新に失敗しました' }, { status: 500 });
   }
 }
 
-// ドライバー削除
+// ライダー削除
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
   try {
     const { id } = await params;
     await prisma.rider.delete({ where: { id } });
     return NextResponse.json({ deleted: id });
   } catch (error) {
-    console.error('ドライバー削除エラー:', error);
-    return NextResponse.json({ error: 'ドライバーの削除に失敗しました' }, { status: 500 });
+    console.error('ライダー削除エラー:', error);
+    return NextResponse.json({ error: 'ライダーの削除に失敗しました' }, { status: 500 });
   }
 }

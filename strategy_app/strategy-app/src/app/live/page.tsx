@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatLapTime, formatMinSec, minSecToSeconds } from '@/lib/time';
+import { formatLapTime, formatMinSec, partsToSeconds, secondsToParts } from '@/lib/time';
 import { CONDITION_LABEL, CONDITION_COLOR, CONDITIONS } from '@/lib/constants';
 import RaceClockTile from '@/components/RaceClockTile';
 import { PanelLabel } from '@/components/panel-label';
@@ -33,6 +33,7 @@ interface LiveResponse {
     raceDurationMin: number;
   } | null;
   riders: Rider[];
+  nextPlannedRiderId: string | null;
   currentStint: { id: string; stintNumber: number; riderId: string | null; plannedLaps: number | null } | null;
   tiles: {
     totalLaps: number;
@@ -59,13 +60,25 @@ export default function LivePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // 入力フォーム
+  // 入力フォーム（タイムは 分 : 秒 . ミリ秒 の 3 枠。小数点を打たずに入力できる）
   const [minVal, setMinVal] = useState('2');
   const [secVal, setSecVal] = useState('');
+  const [msVal, setMsVal] = useState('');
   const [condition, setCondition] = useState('D');
   const [outIn, setOutIn] = useState<string | null>(null);
   const [riderId, setRiderId] = useState<string>('');
   const secRef = useRef<HTMLInputElement>(null);
+
+  // 入力済みラップの修正（インライン編集）。null なら編集していない
+  const [editLap, setEditLap] = useState<{
+    id: string;
+    min: string;
+    sec: string;
+    ms: string;
+    condition: string;
+    outIn: string | null;
+    riderId: string;
+  } | null>(null);
 
   // ピットフォーム
   const [pitRiderId, setPitRiderId] = useState<string>('');
@@ -93,9 +106,9 @@ export default function LivePage() {
   }, [fetchLive]);
 
   const recordLap = useCallback(async () => {
-    const lapTimeSec = minSecToSeconds(Number(minVal), Number(secVal));
+    const lapTimeSec = partsToSeconds(minVal, secVal, msVal);
     if (!Number.isFinite(lapTimeSec) || lapTimeSec <= 0 || secVal.trim() === '') {
-      setError('ラップタイムを入力してください（秒は小数可。例: 26.271）');
+      setError('ラップタイム（分・秒）を入力してください');
       return;
     }
     setBusy(true);
@@ -107,6 +120,7 @@ export default function LivePage() {
       });
       if (!res.ok) throw new Error((await res.json()).error ?? '記録に失敗しました');
       setSecVal('');
+      setMsVal('');
       setOutIn(null);
       secRef.current?.focus();
       await fetchLive();
@@ -115,17 +129,85 @@ export default function LivePage() {
     } finally {
       setBusy(false);
     }
-  }, [minVal, secVal, condition, outIn, riderId, fetchLive]);
+  }, [minVal, secVal, msVal, condition, outIn, riderId, fetchLive]);
 
   const copyPrevious = useCallback(() => {
     const last = live?.recentLaps[0];
     if (!last) return;
-    const m = Math.floor(last.lapTimeSec / 60);
-    const s = last.lapTimeSec - m * 60;
-    setMinVal(String(m));
-    setSecVal(s.toFixed(3));
+    const { min, sec, ms } = secondsToParts(last.lapTimeSec);
+    setMinVal(String(min));
+    setSecVal(String(sec));
+    setMsVal(String(ms).padStart(3, '0'));
     setCondition(last.condition);
   }, [live]);
+
+  // 入力済みラップの修正を開始（秒を 分・秒・ミリ秒 に分解してフォームへ）
+  const startEditLap = useCallback((l: RecentLap) => {
+    const { min, sec, ms } = secondsToParts(l.lapTimeSec);
+    setEditLap({
+      id: l.id,
+      min: String(min),
+      sec: String(sec),
+      ms: String(ms).padStart(3, '0'),
+      condition: l.condition,
+      outIn: l.outIn,
+      riderId: l.riderId ?? '',
+    });
+  }, []);
+
+  const saveEditLap = useCallback(async () => {
+    if (!editLap) return;
+    const lapTimeSec = partsToSeconds(editLap.min, editLap.sec, editLap.ms);
+    if (!Number.isFinite(lapTimeSec) || lapTimeSec <= 0) {
+      setError('ラップタイム（分・秒）を入力してください');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/laps/${editLap.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lapTimeSec,
+          condition: editLap.condition,
+          outIn: editLap.outIn,
+          riderId: editLap.riderId || null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? '修正に失敗しました');
+      setEditLap(null);
+      await fetchLive();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '修正に失敗しました');
+    } finally {
+      setBusy(false);
+    }
+  }, [editLap, fetchLive]);
+
+  const deleteLap = useCallback(
+    async (id: string) => {
+      if (!confirm('このラップを削除しますか？（以降の通算周回番号がずれる場合があります）')) return;
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/laps/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error((await res.json()).error ?? '削除に失敗しました');
+        if (editLap?.id === id) setEditLap(null);
+        await fetchLive();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '削除に失敗しました');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [editLap, fetchLive],
+  );
+
+  // ピットフォームを開閉。開くときは次走者のデフォルトを計画（次スティントの計画走者）に合わせる
+  const togglePit = useCallback(() => {
+    const willOpen = !showPit;
+    if (willOpen) setPitRiderId(live?.nextPlannedRiderId ?? '');
+    setShowPit(willOpen);
+  }, [showPit, live]);
 
   const undoLast = useCallback(async () => {
     if (!confirm('直前のラップを取り消しますか？')) return;
@@ -252,7 +334,7 @@ export default function LivePage() {
           <PanelLabel>Input / ラップ記録</PanelLabel>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* タイム: 分 + 秒(小数) */}
+          {/* タイム: 分 : 秒 . ミリ秒 の 3 枠（小数点を打たずに入力できる） */}
           <div className="flex items-end gap-2 flex-wrap">
             <div>
               <label className="block text-xs text-muted-foreground mb-1">分</label>
@@ -265,16 +347,30 @@ export default function LivePage() {
             </div>
             <div className="text-3xl pb-3">:</div>
             <div>
-              <label className="block text-xs text-muted-foreground mb-1">秒（小数可 例 26.271）</label>
+              <label className="block text-xs text-muted-foreground mb-1">秒</label>
               <Input
                 ref={secRef}
                 autoFocus
-                inputMode="decimal"
+                inputMode="numeric"
+                maxLength={2}
                 value={secVal}
                 onChange={(e) => setSecVal(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && recordLap()}
-                placeholder="26.271"
-                className="w-44 h-16 text-3xl text-center font-mono"
+                placeholder="26"
+                className="w-24 h-16 text-3xl text-center font-mono"
+              />
+            </div>
+            <div className="text-3xl pb-3">.</div>
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">ミリ秒</label>
+              <Input
+                inputMode="numeric"
+                maxLength={3}
+                value={msVal}
+                onChange={(e) => setMsVal(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && recordLap()}
+                placeholder="271"
+                className="w-28 h-16 text-3xl text-center font-mono"
               />
             </div>
             <Button variant="outline" onClick={copyPrevious} className="h-10">
@@ -282,7 +378,7 @@ export default function LivePage() {
             </Button>
             <div className="pb-1 text-sm text-muted-foreground">
               → <span className="font-mono text-base text-foreground">
-                {secVal.trim() !== '' ? formatLapTime(minSecToSeconds(Number(minVal), Number(secVal))) : '—'}
+                {secVal.trim() !== '' ? formatLapTime(partsToSeconds(minVal, secVal, msVal)) : '—'}
               </span>
             </div>
           </div>
@@ -349,7 +445,7 @@ export default function LivePage() {
             <Button onClick={undoLast} disabled={busy} variant="outline" className="h-16 flex-1 sm:flex-none">
               直前を取消
             </Button>
-            <Button onClick={() => setShowPit((v) => !v)} disabled={busy} variant="secondary" className="h-16 flex-1 sm:flex-none">
+            <Button onClick={togglePit} disabled={busy} variant="secondary" className="h-16 flex-1 sm:flex-none">
               ピットイン
             </Button>
           </div>
@@ -372,6 +468,9 @@ export default function LivePage() {
                     </option>
                   ))}
                 </select>
+                {live.nextPlannedRiderId && (
+                  <span className="text-xs text-muted-foreground">計画: {riderName(live.nextPlannedRiderId)}</span>
+                )}
                 <span className="text-xs text-muted-foreground">給油後 残量L</span>
                 <Input
                   inputMode="decimal"
@@ -406,30 +505,129 @@ export default function LivePage() {
                   <th className="text-right py-2 px-2">タイム</th>
                   <th className="text-right py-2 px-2">使用L</th>
                   <th className="text-right py-2 px-2">残L</th>
+                  <th className="text-right py-2 px-2">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {live.recentLaps.map((l) => (
-                  <tr key={l.id} className="border-b border-border/50">
-                    <td className="py-1.5 px-2 font-mono">{l.lapNumber}</td>
-                    <td className="py-1.5 px-2">{riderName(l.riderId)}</td>
-                    <td className="py-1.5 px-2">
-                      <span
-                        className="inline-block px-2 py-0.5 rounded-full text-xs text-white whitespace-nowrap"
-                        style={{ backgroundColor: CONDITION_COLOR[l.condition] ?? '#6b7280' }}
-                      >
-                        {CONDITION_LABEL[l.condition] ?? l.condition}
-                      </span>
-                    </td>
-                    <td className="py-1.5 px-2">{l.outIn ?? ''}</td>
-                    <td className="py-1.5 px-2 text-right font-mono">{formatLapTime(l.lapTimeSec)}</td>
-                    <td className="py-1.5 px-2 text-right font-mono">{l.fuel ? l.fuel.fuelUsedL.toFixed(2) : '-'}</td>
-                    <td className="py-1.5 px-2 text-right font-mono">{l.fuel ? l.fuel.fuelRemainingL.toFixed(2) : '-'}</td>
-                  </tr>
-                ))}
+                {live.recentLaps.map((l) =>
+                  editLap?.id === l.id ? (
+                    <tr key={l.id} className="border-b border-border/50 bg-muted/40">
+                      <td colSpan={8} className="py-2 px-2">
+                        <div className="flex items-end gap-2 flex-wrap">
+                          <span className="font-mono text-sm pb-2 w-10">{l.lapNumber}</span>
+                          <div>
+                            <label className="block text-[10px] text-muted-foreground mb-0.5">走者</label>
+                            <select
+                              value={editLap.riderId}
+                              onChange={(e) => setEditLap({ ...editLap, riderId: e.target.value })}
+                              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                            >
+                              <option value="">-</option>
+                              {live.riders.map((r) => (
+                                <option key={r.id} value={r.id}>
+                                  {r.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-muted-foreground mb-0.5">路面</label>
+                            <select
+                              value={editLap.condition}
+                              onChange={(e) => setEditLap({ ...editLap, condition: e.target.value })}
+                              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                            >
+                              {CONDITIONS.map((c) => (
+                                <option key={c} value={c}>
+                                  {CONDITION_LABEL[c] ?? c}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-muted-foreground mb-0.5">区分</label>
+                            <select
+                              value={editLap.outIn ?? ''}
+                              onChange={(e) => setEditLap({ ...editLap, outIn: e.target.value || null })}
+                              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                            >
+                              <option value="">通常</option>
+                              <option value="OUT">OUT</option>
+                              <option value="IN">IN</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-muted-foreground mb-0.5">分:秒.ミリ秒</label>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                inputMode="numeric"
+                                value={editLap.min}
+                                onChange={(e) => setEditLap({ ...editLap, min: e.target.value })}
+                                className="w-12 h-9 text-center font-mono"
+                                aria-label="分"
+                              />
+                              <span>:</span>
+                              <Input
+                                inputMode="numeric"
+                                maxLength={2}
+                                value={editLap.sec}
+                                onChange={(e) => setEditLap({ ...editLap, sec: e.target.value })}
+                                className="w-12 h-9 text-center font-mono"
+                                aria-label="秒"
+                              />
+                              <span>.</span>
+                              <Input
+                                inputMode="numeric"
+                                maxLength={3}
+                                value={editLap.ms}
+                                onChange={(e) => setEditLap({ ...editLap, ms: e.target.value })}
+                                className="w-14 h-9 text-center font-mono"
+                                aria-label="ミリ秒"
+                              />
+                            </div>
+                          </div>
+                          <Button size="sm" onClick={saveEditLap} disabled={busy}>
+                            保存
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setEditLap(null)}>
+                            キャンセル
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={l.id} className="border-b border-border/50">
+                      <td className="py-1.5 px-2 font-mono">{l.lapNumber}</td>
+                      <td className="py-1.5 px-2">{riderName(l.riderId)}</td>
+                      <td className="py-1.5 px-2">
+                        <span
+                          className="inline-block px-2 py-0.5 rounded-full text-xs text-white whitespace-nowrap"
+                          style={{ backgroundColor: CONDITION_COLOR[l.condition] ?? '#6b7280' }}
+                        >
+                          {CONDITION_LABEL[l.condition] ?? l.condition}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-2">{l.outIn ?? ''}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{formatLapTime(l.lapTimeSec)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{l.fuel ? l.fuel.fuelUsedL.toFixed(2) : '-'}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{l.fuel ? l.fuel.fuelRemainingL.toFixed(2) : '-'}</td>
+                      <td className="py-1.5 px-2 text-right whitespace-nowrap">
+                        <button onClick={() => startEditLap(l)} className="text-xs text-primary hover:underline">
+                          編集
+                        </button>
+                        <button
+                          onClick={() => deleteLap(l.id)}
+                          className="text-xs text-destructive hover:underline ml-2"
+                        >
+                          削除
+                        </button>
+                      </td>
+                    </tr>
+                  ),
+                )}
                 {live.recentLaps.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="text-center py-6 text-muted-foreground">
+                    <td colSpan={8} className="text-center py-6 text-muted-foreground">
                       まだラップがありません
                     </td>
                   </tr>

@@ -46,6 +46,7 @@ export async function getPlanState() {
     plannedLaps: s.plannedLaps,
     targetLapSec: s.targetLapSec,
     refuelL: s.refuelL,
+    tireChange: s.tireChange,
     note: s.note,
   }));
 
@@ -114,6 +115,7 @@ export async function getPlanState() {
       plannedLaps: s.plannedLaps,
       targetLapSec: s.targetLapSec,
       refuelL: s.refuelL,
+      tireChange: s.tireChange,
       startFuelL: stintStartFuel[s.stintNumber] ?? null, // 持ち越し計算後の開始燃料
       note: s.note,
     })),
@@ -173,6 +175,7 @@ export async function savePlanStints(
           plannedLaps: s.plannedLaps,
           targetLapSec: s.targetLapSec,
           refuelL: s.refuelL,
+          tireChange: s.tireChange ?? false,
           note: s.note ?? null,
         },
       });
@@ -300,6 +303,7 @@ async function savePlanStintsFrozen(
           plannedLaps: s.plannedLaps,
           targetLapSec: s.targetLapSec,
           refuelL: s.refuelL,
+          tireChange: s.tireChange ?? false,
           note: s.note ?? null,
         },
       });

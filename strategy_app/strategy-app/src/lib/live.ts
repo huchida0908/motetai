@@ -67,6 +67,10 @@ export async function getLiveState(nowMs: number) {
   const openStints = stints.filter((s) => s.endedAt == null);
   const currentStint = openStints.length > 0 ? openStints[openStints.length - 1] : stints[stints.length - 1] ?? null;
 
+  // 次スティント（現在の番号 +1）の計画上のライダー。ピット時のデフォルト走者に使う
+  const nextStintNumber = (currentStint?.stintNumber ?? 0) + 1;
+  const nextPlannedRiderId = planStints.find((s) => s.stintNumber === nextStintNumber)?.riderId ?? null;
+
   let currentState = null as ReturnType<typeof computeStintState> | null;
   if (currentStint) {
     const stintLaps = laps.filter((l) => l.stintId === currentStint.id) as unknown as LapLike[];
@@ -112,6 +116,13 @@ export async function getLiveState(nowMs: number) {
     }, 0);
   }
   const nextPlannedPit = planLaps.find((p) => p.outIn === 'IN' && p.lapNumber > laps.length) ?? null;
+  // 次の計画ピットでタイヤ交換するか = そのピット明けに始まるスティント（IN 周の次スティント）のフラグ
+  let nextPitTireChange: boolean | null = null;
+  if (nextPlannedPit) {
+    const inStintNo = planStints.find((s) => s.id === nextPlannedPit.planStintId)?.stintNumber;
+    const nextStint = inStintNo != null ? planStints.find((s) => s.stintNumber === inStintNo + 1) : undefined;
+    nextPitTireChange = nextStint?.tireChange ?? null;
+  }
 
   // チャート用の系列（計画 vs 実績）
   const series = laps.map((l) => ({
@@ -202,6 +213,7 @@ export async function getLiveState(nowMs: number) {
       updatedAt: race.updatedAt.toISOString(),
     },
     riders,
+    nextPlannedRiderId,
     currentStint: currentStint
       ? {
           ...currentStint,
@@ -229,6 +241,7 @@ export async function getLiveState(nowMs: number) {
       assumedLapSec: race.assumedLapSec,
       planBankSec,
       nextPlannedPitLap: nextPlannedPit?.lapNumber ?? null,
+      nextPitTireChange,
       planTotalLaps: planLaps.length > 0 ? planLaps.length : null,
     },
     series,

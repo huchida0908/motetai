@@ -21,6 +21,7 @@ interface PlanStint {
   plannedLaps: number;
   targetLapSec: number | null;
   refuelL: number; // ピットでの給油量（追加L）
+  tireChange: boolean; // スティント開始時のピットインでタイヤ交換するか
   startFuelL: number | null; // 持ち越し計算後のスティント開始燃料
   note: string | null;
 }
@@ -85,6 +86,7 @@ interface DraftStint {
   plannedLaps: string;
   targetLap: string; // "2:26.271" / "146.271"
   refuelL: string;
+  tireChange: boolean;
 }
 
 let draftSeq = 0;
@@ -118,6 +120,7 @@ export default function PlanPage() {
         plannedLaps: String(s.plannedLaps),
         targetLap: s.targetLapSec != null ? formatLapTime(s.targetLapSec) : '',
         refuelL: String(s.refuelL),
+        tireChange: s.tireChange,
       })),
     );
     setDirty(false);
@@ -159,6 +162,12 @@ export default function PlanPage() {
 
   const riderName = useCallback(
     (id: string | null) => plan?.riders.find((r) => r.id === id)?.name ?? '-',
+    [plan],
+  );
+
+  // スティント番号 → タイヤ交換フラグ（周単位テーブルの OUT 周バッジ用）
+  const tireByStint = useMemo(
+    () => new Map((plan?.stints ?? []).map((s) => [s.stintNumber, s.tireChange])),
     [plan],
   );
 
@@ -242,6 +251,7 @@ export default function PlanPage() {
         targetLap: rider ? formatLapTime(rider.expectedLapTime) : '',
         // 給油量（追加L）。ST1 は未使用（スタート燃料を使う）なので 0
         refuelL: prev.length === 0 ? '0' : String(plan.race!.tankCapacityL),
+        tireChange: false,
       },
     ]);
     setDirty(true);
@@ -286,6 +296,7 @@ export default function PlanPage() {
         plannedLaps: laps,
         targetLapSec: target,
         refuelL: refuel,
+        tireChange: i > 0 && d.tireChange,
       });
     }
     setBusy(true);
@@ -552,6 +563,7 @@ export default function PlanPage() {
                       <th className="text-left py-2 px-2">周回数</th>
                       <th className="text-left py-2 px-2">目標ラップ</th>
                       <th className="text-left py-2 px-2">給油量L</th>
+                      <th className="text-center py-2 px-2 whitespace-nowrap">🛞 タイヤ</th>
                       <th className="text-right py-2 px-2 whitespace-nowrap">開始燃料(自動)</th>
                       <th className="text-right py-2 px-2 whitespace-nowrap">終了時残L</th>
                       <th className="py-2 px-2"></th>
@@ -620,6 +632,20 @@ export default function PlanPage() {
                             />
                           )}
                         </td>
+                        <td className="py-1.5 px-2 text-center">
+                          {i === 0 ? (
+                            <span className="text-xs text-muted-foreground">─</span>
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={d.tireChange}
+                              disabled={isFrozen || isBoundary}
+                              onChange={(e) => updateDraft(d.key, { tireChange: e.target.checked })}
+                              className="h-4 w-4 accent-amber-500 disabled:opacity-60"
+                              title="このスティント開始時のピットインでタイヤ交換する"
+                            />
+                          )}
+                        </td>
                         <td className="py-1.5 px-2 text-right font-mono text-muted-foreground whitespace-nowrap">
                           {draftFuel?.stintStartFuel[i + 1] != null ? `${draftFuel.stintStartFuel[i + 1].toFixed(2)} L` : '-'}
                         </td>
@@ -646,7 +672,7 @@ export default function PlanPage() {
                     })}
                     {drafts.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="text-center py-6 text-muted-foreground">
+                        <td colSpan={9} className="text-center py-6 text-muted-foreground">
                           スティントがありません。「自動生成」または「＋スティント追加」から作成してください
                         </td>
                       </tr>
@@ -694,7 +720,12 @@ export default function PlanPage() {
                         <td className="py-1 px-2 font-mono">{l.lapNumber}</td>
                         <td className="py-1 px-2 font-mono">{l.stintNumber}</td>
                         <td className="py-1 px-2">{riderName(l.riderId)}</td>
-                        <td className="py-1 px-2 text-xs">{l.outIn ?? ''}</td>
+                        <td className="py-1 px-2 text-xs whitespace-nowrap">
+                          {l.outIn ?? ''}
+                          {l.outIn === 'OUT' && tireByStint.get(l.stintNumber) && (
+                            <span className="ml-1 text-amber-400" title="このピットでタイヤ交換">🛞</span>
+                          )}
+                        </td>
                         <td className="py-1 px-2">
                           {editingLap === l.lapNumber ? (
                             <select

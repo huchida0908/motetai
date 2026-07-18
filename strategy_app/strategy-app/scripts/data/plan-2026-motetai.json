@@ -1,0 +1,1066 @@
+{
+  "source": "lap管理/2023/2026 もて耐ラップ管理_01.xlsm 計画タブ",
+  "raceConfig": {
+    "startFuelL": 13.88
+  },
+  "riderTargets": {
+    "もりけん": 141,
+    "内田": 142,
+    "小林": 144
+  },
+  "stints": [
+    {
+      "stintNumber": 1,
+      "riderName": "もりけん",
+      "plannedLaps": 23,
+      "targetLapSec": 141.0,
+      "refuelL": 0.0,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 160.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 150.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 14,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 15,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 16,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 17,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 18,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 19,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 20,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 21,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 22,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 23,
+          "outIn": "IN",
+          "condition": "D",
+          "timeSec": 141.0
+        }
+      ]
+    },
+    {
+      "stintNumber": 2,
+      "riderName": "小林",
+      "plannedLaps": 15,
+      "targetLapSec": 144.0,
+      "refuelL": 5.3,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 160.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 150.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 14,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 15,
+          "outIn": "IN",
+          "condition": "D",
+          "timeSec": 144.0
+        }
+      ]
+    },
+    {
+      "stintNumber": 3,
+      "riderName": "内田",
+      "plannedLaps": 21,
+      "targetLapSec": 142.0,
+      "refuelL": 5.3,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 160.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 150.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 14,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 15,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 16,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 17,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 18,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 19,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 20,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 21,
+          "outIn": "IN",
+          "condition": "D",
+          "timeSec": 142.0
+        }
+      ]
+    },
+    {
+      "stintNumber": 4,
+      "riderName": "もりけん",
+      "plannedLaps": 22,
+      "targetLapSec": 141.0,
+      "refuelL": 5.3,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 160.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 150.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 14,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 15,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 16,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 17,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 18,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 19,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 20,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 21,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 22,
+          "outIn": "IN",
+          "condition": "D",
+          "timeSec": 141.0
+        }
+      ]
+    },
+    {
+      "stintNumber": 5,
+      "riderName": "小林",
+      "plannedLaps": 13,
+      "targetLapSec": 144.0,
+      "refuelL": 5.3,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 160.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 150.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": "IN",
+          "condition": "D",
+          "timeSec": 144.0
+        }
+      ]
+    },
+    {
+      "stintNumber": 6,
+      "riderName": "内田",
+      "plannedLaps": 18,
+      "targetLapSec": 142.0,
+      "refuelL": 5.3,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 160.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 150.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 14,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 15,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 16,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 17,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 18,
+          "outIn": "IN",
+          "condition": "D",
+          "timeSec": 142.0
+        }
+      ]
+    },
+    {
+      "stintNumber": 7,
+      "riderName": "もりけん",
+      "plannedLaps": 17,
+      "targetLapSec": 141.0,
+      "refuelL": 5.3,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 160.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 150.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 14,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 15,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 16,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 141.0
+        },
+        {
+          "lapInStint": 17,
+          "outIn": "IN",
+          "condition": "D",
+          "timeSec": 141.0
+        }
+      ]
+    },
+    {
+      "stintNumber": 8,
+      "riderName": "小林",
+      "plannedLaps": 13,
+      "targetLapSec": 144.0,
+      "refuelL": 5.3,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 160.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 150.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 144.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": "IN",
+          "condition": "D",
+          "timeSec": 144.0
+        }
+      ]
+    },
+    {
+      "stintNumber": 9,
+      "riderName": "内田",
+      "plannedLaps": 20,
+      "targetLapSec": 142.0,
+      "refuelL": 5.3,
+      "laps": [
+        {
+          "lapInStint": 1,
+          "outIn": "OUT",
+          "condition": "D",
+          "timeSec": 164.0
+        },
+        {
+          "lapInStint": 2,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 154.0
+        },
+        {
+          "lapInStint": 3,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 4,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 5,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 6,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 7,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 8,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 9,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 10,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 11,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 12,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 13,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 14,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 15,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 16,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 17,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 18,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 19,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        },
+        {
+          "lapInStint": 20,
+          "outIn": null,
+          "condition": "D",
+          "timeSec": 142.0
+        }
+      ]
+    }
+  ]
+}

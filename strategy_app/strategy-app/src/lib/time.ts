@@ -28,6 +28,22 @@ export function minSecToSeconds(min: number, sec: number): number {
   return (Number(min) || 0) * 60 + (Number(sec) || 0);
 }
 
+// 分・整数秒・ミリ秒 -> 秒。ライブ入力の 3 枠（M : SS . mmm）を秒へ合成する。
+// ミリ秒は 3 桁の値（例: 271 -> 0.271 秒）として扱う。
+export function partsToSeconds(min: number | string, sec: number | string, ms: number | string): number {
+  return (Number(min) || 0) * 60 + (Number(sec) || 0) + (Number(ms) || 0) / 1000;
+}
+
+// 秒 -> { min, sec, ms }。3 枠へ分解する（ミリ秒は 0..999 の整数）。
+export function secondsToParts(totalSeconds: number | null | undefined): { min: number; sec: number; ms: number } {
+  const totalMs = Math.round(Math.max(0, Number(totalSeconds) || 0) * 1000);
+  return {
+    min: Math.floor(totalMs / 60000),
+    sec: Math.floor((totalMs % 60000) / 1000),
+    ms: totalMs % 1000,
+  };
+}
+
 // ISO文字列/Date -> <input type="datetime-local"> 用の "YYYY-MM-DDTHH:mm"（ローカル時刻）。
 export function toDatetimeLocal(iso: string | Date | null | undefined): string {
   if (!iso) return '';
