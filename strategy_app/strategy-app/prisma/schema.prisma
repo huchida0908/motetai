@@ -33,6 +33,8 @@ model Rider {
   segments   Segment[]
   actualLaps ActualLap[]
   stints     Stint[]
+  planStints PlanStint[]
+  planLaps   PlanLap[]
 
   @@map("riders")
 }
@@ -112,8 +114,60 @@ model RaceConfig {
 
   stints     Stint[]
   actualLaps ActualLap[]
+  planStints PlanStint[]
+  planLaps   PlanLap[]
 
   @@map("race_configs")
+}
+
+// ─────────────────────────────────────────────
+// 計画スティント: 「誰が・何周・目標ラップ・給油量」の編集単位。
+// 保存時に PlanLap（周単位）へ自動展開される（Excel「計画」シートの1ブロックに対応）
+// ─────────────────────────────────────────────
+model PlanStint {
+  id           String  @id @default(cuid())
+  raceConfigId String
+  stintNumber  Int // 1 始まりの通し番号（＝走行順）
+  riderId      String?
+  plannedLaps  Int // このスティントの予定周回数
+  targetLapSec Float? // 通常周の目標ラップ（null なら想定 Lap を使用）
+  refuelL      Float // スティント開始時のピットでの給油量（追加L）。残燃料に加算しタンク容量でキャップ。スティント1では未使用（スタート燃料 startFuelL を使う）
+  note         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  raceConfig RaceConfig @relation(fields: [raceConfigId], references: [id], onDelete: Cascade)
+  rider      Rider?     @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  laps       PlanLap[]
+
+  @@unique([raceConfigId, stintNumber])
+  @@map("plan_stints")
+}
+
+// ─────────────────────────────────────────────
+// 計画ラップ: PlanStint から展開された 1 周 1 行の計画。
+// isOverride=true の行は手動上書き（再展開時に保持するか選べる）
+// ─────────────────────────────────────────────
+model PlanLap {
+  id           String  @id @default(cuid())
+  raceConfigId String
+  planStintId  String
+  lapNumber    Int // レース通算の周番号
+  lapInStint   Int // スティント内の周番号（1 始まり）
+  riderId      String?
+  condition    String  @default("D") // D / W / SC（計画時の路面想定）
+  outIn        String? // "OUT" | "IN" | null（スティント境界から自動決定）
+  plannedTimeSec Float // 計画ラップタイム（秒）
+  isOverride   Boolean @default(false) // 手動上書きされた行か
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  raceConfig RaceConfig @relation(fields: [raceConfigId], references: [id], onDelete: Cascade)
+  planStint  PlanStint  @relation(fields: [planStintId], references: [id], onDelete: Cascade)
+  rider      Rider?     @relation(fields: [riderId], references: [id], onDelete: SetNull)
+
+  @@unique([raceConfigId, lapNumber])
+  @@map("plan_laps")
 }
 
 // ─────────────────────────────────────────────

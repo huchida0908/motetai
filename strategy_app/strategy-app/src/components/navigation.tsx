@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
+  ClipboardList,
   LayoutDashboard,
   Settings,
   Timer
@@ -19,6 +20,11 @@ const navigationItems = [
     title: 'ライブ入力',
     href: '/live',
     icon: Timer,
+  },
+  {
+    title: '計画',
+    href: '/plan',
+    icon: ClipboardList,
   },
   {
     title: '設定',

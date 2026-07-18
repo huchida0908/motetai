@@ -24,7 +24,7 @@ export async function getLiveState(nowMs: number) {
   const race = await getActiveRace();
   if (!race) return { race: null } as const;
 
-  const [stints, riders, laps] = await Promise.all([
+  const [stints, riders, laps, planLaps] = await Promise.all([
     prisma.stint.findMany({
       where: { raceConfigId: race.id },
       orderBy: { stintNumber: 'asc' },
@@ -32,6 +32,10 @@ export async function getLiveState(nowMs: number) {
     }),
     prisma.rider.findMany({ orderBy: { displayOrder: 'asc' } }),
     prisma.actualLap.findMany({
+      where: { raceConfigId: race.id },
+      orderBy: { lapNumber: 'asc' },
+    }),
+    prisma.planLap.findMany({
       where: { raceConfigId: race.id },
       orderBy: { lapNumber: 'asc' },
     }),
@@ -92,13 +96,54 @@ export async function getLiveState(nowMs: number) {
 
   const bankSec = scheduleBank(allLapLikes, race.assumedLapSec);
 
+  // 周単位計画との突き合わせ（計画がある場合のみ）
+  const planByLap = new Map(planLaps.map((p) => [p.lapNumber, p]));
+  let planBankSec: number | null = null;
+  if (planLaps.length > 0 && laps.length > 0) {
+    // Σ(計画 − 実績)。＋=計画より速い（貯金）/ −=遅い（借金）
+    planBankSec = laps.reduce((acc, l) => {
+      const p = planByLap.get(l.lapNumber);
+      return p ? acc + (p.plannedTimeSec - l.lapTimeSec) : acc;
+    }, 0);
+  }
+  const nextPlannedPit = planLaps.find((p) => p.outIn === 'IN' && p.lapNumber > laps.length) ?? null;
+
   // チャート用の系列（計画 vs 実績）
   const series = laps.map((l) => ({
     lap: l.lapNumber,
     timeSec: l.lapTimeSec,
     condition: l.condition,
     outIn: l.outIn ?? null,
+    riderId: l.riderId,
   }));
+  const planSeries = planLaps.map((p) => ({
+    lap: p.lapNumber,
+    timeSec: p.plannedTimeSec,
+    outIn: p.outIn ?? null,
+  }));
+
+  // 周回数推移（横軸=経過秒、縦軸=通算周回）用の系列。
+  // 計画: Σ計画ラップ + スティント境界ごとの想定ピットロス（計画累積時間と同じ定義）
+  let planCum = 0;
+  let prevPlanStintId: string | undefined;
+  const planProgress = planLaps.map((p) => {
+    if (prevPlanStintId !== undefined && p.planStintId !== prevPlanStintId) planCum += race.pitLossSec;
+    prevPlanStintId = p.planStintId;
+    planCum += p.plannedTimeSec;
+    return { t: planCum, laps: p.lapNumber };
+  });
+  // 実績: レース開始済みなら記録時刻 − 開始時刻（実経過。実際のピット所要も反映される）。
+  // 未開始（事前入力など）は計画と同じ「Σラップ + 想定ピットロス」で概算。
+  const startMs = race.startedAt?.getTime() ?? null;
+  let actualCum = 0;
+  let prevStintId: string | null | undefined;
+  const actualProgress = laps.map((l) => {
+    if (prevStintId !== undefined && l.stintId !== prevStintId) actualCum += race.pitLossSec;
+    prevStintId = l.stintId;
+    actualCum += l.lapTimeSec;
+    const t = startMs != null ? (l.timestamp.getTime() - startMs) / 1000 : actualCum;
+    return { t: Math.max(0, t), laps: l.lapNumber };
+  });
 
   // 直近ラップ一覧（最大 20 件）に燃料情報を付与
   const recentLaps = laps
@@ -144,8 +189,13 @@ export async function getLiveState(nowMs: number) {
       nextPitInSec: projection?.nextPitInSec ?? null,
       bankSec,
       assumedLapSec: race.assumedLapSec,
+      planBankSec,
+      nextPlannedPitLap: nextPlannedPit?.lapNumber ?? null,
+      planTotalLaps: planLaps.length > 0 ? planLaps.length : null,
     },
     series,
+    planSeries,
+    progress: { plan: planProgress, actual: actualProgress },
     recentLaps,
   };
 }

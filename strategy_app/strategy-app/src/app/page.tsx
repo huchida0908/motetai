@@ -71,15 +71,21 @@ export default async function Dashboard() {
       {/* レースクロック予測 */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <StatCard title="着地予測(周)" value={t.projectedTotalLaps != null ? `${t.projectedTotalLaps} 周` : '未計測'}
-          sub={t.clock ? `現在 ${t.totalLaps} 周` : 'レース開始で計測'} />
+          sub={t.planTotalLaps != null ? `計画 ${t.planTotalLaps} 周` : t.clock ? `現在 ${t.totalLaps} 周` : 'レース開始で計測'} />
         <StatCard title="次ピットまで" value={`${t.lapsUntilNextPit} 周`}
-          sub={t.nextPitInSec != null ? `約 ${formatMinSec(t.nextPitInSec)} 後` : ''} />
+          sub={[
+            t.nextPitInSec != null ? `約 ${formatMinSec(t.nextPitInSec)} 後` : '',
+            t.nextPlannedPitLap != null ? `計画: Lap ${t.nextPlannedPitLap}` : '',
+          ].filter(Boolean).join(' / ')} />
         <StatCard title="残ピット回数" value={t.remainingPits != null ? `${t.remainingPits} 回` : '-'} />
-        {(() => { const b = bankLabel(t.bankSec); return (
+        {(() => {
+          const hasPlan = t.planBankSec != null;
+          const b = bankLabel(hasPlan ? t.planBankSec : t.bankSec);
+          return (
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">対予定(貯金/借金)</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{hasPlan ? '対計画(貯金/借金)' : '対予定(貯金/借金)'}</CardTitle></CardHeader>
             <CardContent><div className={`text-2xl font-bold font-mono ${b.className}`}>{b.text}</div>
-              <p className="text-xs text-muted-foreground">＋=速い / −=遅い（想定 {formatLapTime(t.assumedLapSec)}比）</p></CardContent>
+              <p className="text-xs text-muted-foreground">＋=速い / −=遅い（{hasPlan ? '周単位計画比' : `想定 ${formatLapTime(t.assumedLapSec)}比`}）</p></CardContent>
           </Card>
         ); })()}
       </div>
@@ -88,10 +94,18 @@ export default async function Dashboard() {
       <Card>
         <CardHeader>
           <CardTitle>ラップ推移（計画 vs 実績）</CardTitle>
-          <CardDescription>ピット周は除外。橙の点線が想定タイム</CardDescription>
+          <CardDescription>
+            {live.planSeries.length > 0 ? '橙=計画 / 青=実績。右上で表示を切替（ラップタイム / 周回数×経過時間）' : 'ピット周は除外。橙の点線が想定タイム'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <LapChart series={live.series} assumedLapSec={t.assumedLapSec} />
+          <LapChart
+            series={live.series}
+            planSeries={live.planSeries}
+            progress={live.progress}
+            raceDurationMin={live.race.raceDurationMin}
+            assumedLapSec={t.assumedLapSec}
+          />
         </CardContent>
       </Card>
 
