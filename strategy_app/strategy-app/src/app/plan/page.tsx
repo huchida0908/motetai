@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatLapTime, formatMinSec, parseLapTime } from '@/lib/time';
 import { CONDITION_LABEL, CONDITION_COLOR } from '@/lib/constants';
+import { expandPlan, computePlanState, type PlanStintInput } from '@/lib/plan-calc';
 
 interface Rider {
   id: string;
@@ -41,17 +42,33 @@ interface PlanResponse {
     id: string;
     raceName: string;
     raceDurationMin: number;
+    startedAt: string | null;
     tankCapacityL: number;
     startFuelL: number;
     pitLossSec: number;
     maxStintLap: number;
+    fuelRateDry: number;
+    fuelRateWet: number;
+    fuelRateSc: number;
+    fuelRateOutIn: number;
     assumedLapSec: number;
+    assumedOutLapSec: number;
+    assumedInLapSec: number;
+    assumedWetLapSec: number;
+    assumedScLapSec: number;
   } | null;
   riders: Rider[];
   stints: PlanStint[];
   laps: PlanLap[];
   totals: { totalLaps: number; totalTimeSec: number; pitCount: number; fuelShortStints: number[]; raceDurationSec: number };
   overrideCount: number;
+  progress?: {
+    maxActualLap: number;
+    raceStarted: boolean;
+    frozenUpTo: number; // この lapNumber までの計画周は保存しても変更されない
+    boundaryStintNumber: number | null; // 走行中（凍結境界）のスティント番号
+    frozenLapsInBoundary: number | null; // 境界スティント内の走行済み周数
+  };
 }
 interface ActualPoint {
   lap: number;
@@ -150,6 +167,46 @@ export default function PlanPage() {
     setTimeout(() => setMsg(''), 2500);
   };
 
+  // ── レース中の凍結境界 ──────────────────────────
+  // レース開始済み＆実績ありなら、保存時に消化済み周の計画を凍結する（freezeCompleted）。
+  const freezeActive = (plan?.progress?.raceStarted ?? false) && (plan?.progress?.maxActualLap ?? 0) > 0;
+  // 凍結境界のスティント番号（これ以前の行はロック表示）。凍結対象が無ければ 0
+  const boundaryNo = freezeActive && (plan?.progress?.frozenUpTo ?? 0) > 0 ? plan?.progress?.boundaryStintNumber ?? 0 : 0;
+  const frozenUpTo = freezeActive ? plan?.progress?.frozenUpTo ?? 0 : 0;
+
+  // ── draft の燃料プレビュー ──────────────────────────
+  // 未保存の編集内容から開始燃料/終了時残量をリアルタイム計算する（plan-calc は純関数）。
+  // 入力が数値として不正な間は null（表示は「-」）。周単位の手動上書きは未適用（保存後にサーバー値で表示）。
+  const draftFuel = useMemo(() => {
+    const race = plan?.race;
+    if (!race || drafts.length === 0) return null;
+    const stints: PlanStintInput[] = [];
+    for (let i = 0; i < drafts.length; i++) {
+      const d = drafts[i];
+      const laps = Number(d.plannedLaps);
+      const refuel = i === 0 || d.refuelL.trim() === '' ? 0 : Number(d.refuelL);
+      if (!Number.isInteger(laps) || laps < 1 || !Number.isFinite(refuel) || refuel < 0) return null;
+      stints.push({
+        stintNumber: i + 1,
+        riderId: d.riderId || null,
+        plannedLaps: laps,
+        targetLapSec: d.targetLap.trim() === '' ? null : parseLapTime(d.targetLap),
+        refuelL: refuel,
+      });
+    }
+    const expanded = expandPlan(stints, race).map((l) => ({ ...l, isOverride: false }));
+    const { laps, totals, stintStartFuel } = computePlanState(
+      expanded,
+      stints,
+      { fuelRateDry: race.fuelRateDry, fuelRateWet: race.fuelRateWet, fuelRateSc: race.fuelRateSc, fuelRateOutIn: race.fuelRateOutIn },
+      { pitLossSec: race.pitLossSec, startFuelL: race.startFuelL, tankCapacityL: race.tankCapacityL },
+    );
+    // 各スティント最終周の残量 = スティント終了時残L（laps は lapNumber 昇順）
+    const stintEndFuel: Record<number, number> = {};
+    for (const l of laps) stintEndFuel[l.stintNumber] = l.fuelRemainingL;
+    return { stintStartFuel, stintEndFuel, fuelShortStints: totals.fuelShortStints };
+  }, [drafts, plan]);
+
   // ── スティント編集操作 ──────────────────────────
   const updateDraft = (key: string, patch: Partial<DraftStint>) => {
     setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
@@ -160,6 +217,8 @@ export default function PlanPage() {
       const idx = prev.findIndex((d) => d.key === key);
       const to = idx + dir;
       if (idx < 0 || to < 0 || to >= prev.length) return prev;
+      // 凍結境界（走行済み/走行中スティント）へは移動不可
+      if (to < boundaryNo) return prev;
       const next = [...prev];
       [next[idx], next[to]] = [next[to], next[idx]];
       return next;
@@ -235,7 +294,11 @@ export default function PlanPage() {
       const res = await fetch('/api/plan', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stints, keepOverrides: keepOverrides && (plan.overrideCount ?? 0) > 0 }),
+        body: JSON.stringify({
+          stints,
+          keepOverrides: keepOverrides && (plan.overrideCount ?? 0) > 0,
+          freezeCompleted: freezeActive,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? '保存に失敗しました');
@@ -246,7 +309,7 @@ export default function PlanPage() {
     } finally {
       setBusy(false);
     }
-  }, [plan, drafts, keepOverrides, applyPlan]);
+  }, [plan, drafts, keepOverrides, freezeActive, applyPlan]);
 
   const generatePlan = useCallback(async () => {
     if (!confirm('現在の計画（手動上書き含む）を破棄して自動生成します。よろしいですか？')) return;
@@ -387,6 +450,15 @@ export default function PlanPage() {
 
       {tab === 'edit' ? (
         <>
+          {/* レース中の凍結案内 */}
+          {freezeActive && (
+            <div className="bg-primary/10 border border-primary/30 rounded-md px-4 py-2 text-sm">
+              レース中: Lap {plan.progress!.maxActualLap} まで走行済み。保存しても走行済みの計画周
+              {frozenUpTo > 0 ? `（Lap ${frozenUpTo} まで）` : ''}は変更されません。
+              走行済み・走行中スティントはロックされ、これから先だけ組み直せます
+            </div>
+          )}
+
           {/* 集計バー */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <SummaryTile label="計画周回" value={`${totals.totalLaps} 周`} />
@@ -401,12 +473,17 @@ export default function PlanPage() {
               warn={overTime < -120}
               sub={overTime >= 0 ? '時間超過ぶんは走り切りでOK' : overTime < -120 ? '2分以上の余りあり: 周回を追加検討' : ''}
             />
-            <SummaryTile
-              label="ピット回数"
-              value={`${totals.pitCount} 回`}
-              warn={totals.fuelShortStints.length > 0}
-              sub={totals.fuelShortStints.length > 0 ? `燃料不足: ST${totals.fuelShortStints.join(', ')}` : ''}
-            />
+            {(() => {
+              const fuelShort = draftFuel?.fuelShortStints ?? totals.fuelShortStints;
+              return (
+                <SummaryTile
+                  label="ピット回数"
+                  value={`${totals.pitCount} 回`}
+                  warn={fuelShort.length > 0}
+                  sub={fuelShort.length > 0 ? `燃料不足: ST${fuelShort.join(', ')}` : ''}
+                />
+              );
+            })()}
           </div>
 
           {/* スティント編集 */}
@@ -417,7 +494,14 @@ export default function PlanPage() {
                 <CardDescription>誰が・何周・目標ラップ・給油量。保存すると周単位に展開されます</CardDescription>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={generatePlan} disabled={busy}>自動生成</Button>
+                <Button
+                  variant="outline"
+                  onClick={generatePlan}
+                  disabled={busy || freezeActive}
+                  title={freezeActive ? 'レース開始後は自動生成できません（計画編集で残りを調整してください）' : undefined}
+                >
+                  自動生成
+                </Button>
                 <Button onClick={savePlan} disabled={busy || drafts.length === 0}>
                   {dirty ? '保存（再展開）' : '保存済み'}
                 </Button>
@@ -433,6 +517,7 @@ export default function PlanPage() {
                     className="h-4 w-4"
                   />
                   再展開時に周単位の手動上書き {plan.overrideCount} 件を保持する（同じ周番号に再適用）
+                  {freezeActive ? '。走行済み周の上書きは常に保持されます' : ''}
                 </label>
               )}
 
@@ -466,18 +551,32 @@ export default function PlanPage() {
                       <th className="text-left py-2 px-2">目標ラップ</th>
                       <th className="text-left py-2 px-2">給油量L</th>
                       <th className="text-right py-2 px-2">開始燃料(自動)</th>
+                      <th className="text-right py-2 px-2">終了時残L</th>
                       <th className="py-2 px-2"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {drafts.map((d, i) => (
-                      <tr key={d.key} className="border-b border-border/50">
-                        <td className="py-1.5 px-2 font-mono">{i + 1}</td>
+                    {drafts.map((d, i) => {
+                      const stNo = i + 1;
+                      const isFrozen = stNo < boundaryNo; // 消化済み: 全ロック
+                      const isBoundary = stNo === boundaryNo; // 走行中: 周回数・目標のみ編集可
+                      return (
+                      <tr key={d.key} className={`border-b border-border/50 ${isFrozen || isBoundary ? 'bg-muted/40' : ''}`}>
+                        <td className="py-1.5 px-2 font-mono whitespace-nowrap">
+                          {stNo}
+                          {isFrozen && (
+                            <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground align-middle">走行済</span>
+                          )}
+                          {isBoundary && (
+                            <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-primary/15 text-primary align-middle">走行中</span>
+                          )}
+                        </td>
                         <td className="py-1.5 px-2">
                           <select
                             value={d.riderId}
+                            disabled={isFrozen || isBoundary}
                             onChange={(e) => updateDraft(d.key, { riderId: e.target.value })}
-                            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                            className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
                           >
                             <option value="">（未定）</option>
                             {plan.riders.map((r) => (
@@ -489,6 +588,8 @@ export default function PlanPage() {
                           <Input
                             inputMode="numeric"
                             value={d.plannedLaps}
+                            disabled={isFrozen}
+                            title={isBoundary && plan.progress?.frozenLapsInBoundary != null ? `${plan.progress.frozenLapsInBoundary}周走行済み（未満には縮められません）` : undefined}
                             onChange={(e) => updateDraft(d.key, { plannedLaps: e.target.value })}
                             className="w-20 h-9 font-mono"
                           />
@@ -496,6 +597,7 @@ export default function PlanPage() {
                         <td className="py-1.5 px-2">
                           <Input
                             value={d.targetLap}
+                            disabled={isFrozen}
                             placeholder={`想定 ${formatLapTime(plan.race!.assumedLapSec)}`}
                             onChange={(e) => updateDraft(d.key, { targetLap: e.target.value })}
                             className="w-32 h-9 font-mono"
@@ -510,24 +612,39 @@ export default function PlanPage() {
                             <Input
                               inputMode="decimal"
                               value={d.refuelL}
+                              disabled={isFrozen || isBoundary}
                               onChange={(e) => updateDraft(d.key, { refuelL: e.target.value })}
                               className="w-20 h-9 font-mono"
                             />
                           )}
                         </td>
                         <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">
-                          {dirty ? '保存後' : plan.stints[i]?.startFuelL != null ? `${plan.stints[i].startFuelL!.toFixed(2)} L` : '-'}
+                          {draftFuel?.stintStartFuel[i + 1] != null ? `${draftFuel.stintStartFuel[i + 1].toFixed(2)} L` : '-'}
+                        </td>
+                        <td
+                          className={`py-1.5 px-2 text-right font-mono ${
+                            draftFuel != null && (draftFuel.stintEndFuel[i + 1] ?? 0) < 0
+                              ? 'text-destructive font-bold'
+                              : 'text-muted-foreground'
+                          }`}
+                        >
+                          {draftFuel?.stintEndFuel[i + 1] != null ? `${draftFuel.stintEndFuel[i + 1].toFixed(2)} L` : '-'}
                         </td>
                         <td className="py-1.5 px-2 whitespace-nowrap">
-                          <Button variant="ghost" size="sm" onClick={() => moveDraft(d.key, -1)} disabled={i === 0}>↑</Button>
-                          <Button variant="ghost" size="sm" onClick={() => moveDraft(d.key, 1)} disabled={i === drafts.length - 1}>↓</Button>
-                          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeDraft(d.key)}>削除</Button>
+                          {!(isFrozen || isBoundary) && (
+                            <>
+                              <Button variant="ghost" size="sm" onClick={() => moveDraft(d.key, -1)} disabled={i <= boundaryNo}>↑</Button>
+                              <Button variant="ghost" size="sm" onClick={() => moveDraft(d.key, 1)} disabled={i === drafts.length - 1}>↓</Button>
+                              <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeDraft(d.key)}>削除</Button>
+                            </>
+                          )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     {drafts.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="text-center py-6 text-muted-foreground">
+                        <td colSpan={8} className="text-center py-6 text-muted-foreground">
                           スティントがありません。「自動生成」または「＋スティント追加」から作成してください
                         </td>
                       </tr>
@@ -565,8 +682,13 @@ export default function PlanPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {plan.laps.map((l) => (
-                      <tr key={l.lapNumber} className={`border-b border-border/50 ${l.isOverride ? 'bg-amber-500/10' : ''}`}>
+                    {plan.laps.map((l) => {
+                      const isFrozenLap = l.lapNumber <= frozenUpTo;
+                      return (
+                      <tr
+                        key={l.lapNumber}
+                        className={`border-b border-border/50 ${l.isOverride ? 'bg-amber-500/10' : isFrozenLap ? 'bg-muted/40' : ''}`}
+                      >
                         <td className="py-1 px-2 font-mono">{l.lapNumber}</td>
                         <td className="py-1 px-2 font-mono">{l.stintNumber}</td>
                         <td className="py-1 px-2">{riderName(l.riderId)}</td>
@@ -609,7 +731,9 @@ export default function PlanPage() {
                         </td>
                         <td className="py-1 px-2 text-right font-mono text-xs text-muted-foreground">{formatMinSec(l.cumTimeSec)}</td>
                         <td className="py-1 px-2 whitespace-nowrap text-right">
-                          {editingLap === l.lapNumber ? (
+                          {isFrozenLap ? (
+                            <span className="text-[10px] text-muted-foreground">走行済</span>
+                          ) : editingLap === l.lapNumber ? (
                             <>
                               <Button variant="ghost" size="sm" onClick={submitLapOverride} disabled={busy}>確定</Button>
                               <Button variant="ghost" size="sm" onClick={() => setEditingLap(null)}>取消</Button>
@@ -626,7 +750,8 @@ export default function PlanPage() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                     {plan.laps.length === 0 && (
                       <tr>
                         <td colSpan={9} className="text-center py-6 text-muted-foreground">計画を保存すると周単位に展開されます</td>

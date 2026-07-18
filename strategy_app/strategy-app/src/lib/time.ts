@@ -28,6 +28,15 @@ export function minSecToSeconds(min: number, sec: number): number {
   return (Number(min) || 0) * 60 + (Number(sec) || 0);
 }
 
+// ISO文字列/Date -> <input type="datetime-local"> 用の "YYYY-MM-DDTHH:mm"（ローカル時刻）。
+export function toDatetimeLocal(iso: string | Date | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // "2:26.271" / "2:26" / "146.271"（秒のみ）などの文字列 -> 秒。
 // 解析できない場合は null。
 export function parseLapTime(input: string): number | null {

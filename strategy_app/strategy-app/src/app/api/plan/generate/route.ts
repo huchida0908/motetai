@@ -12,6 +12,17 @@ export async function POST() {
       return NextResponse.json({ error: 'アクティブなレースがありません' }, { status: 400 });
     }
 
+    // レース開始後（実績あり）は全破棄の自動生成を禁止（消化済み周の計画を守る）
+    if (race.startedAt != null) {
+      const actualCount = await prisma.actualLap.count({ where: { raceConfigId: race.id } });
+      if (actualCount > 0) {
+        return NextResponse.json(
+          { error: 'レース開始後は自動生成できません。計画編集で残りのスティントを調整してください' },
+          { status: 400 },
+        );
+      }
+    }
+
     const riders = await prisma.rider.findMany({ orderBy: { displayOrder: 'asc' } });
     const stints = generateInitialPlan(race, riders);
     if (stints.length === 0) {

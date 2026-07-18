@@ -34,7 +34,19 @@ export interface ProgressPoint {
   laps: number;
 }
 
-type Mode = 'lapTime' | 'progress';
+// 燃料推移の 1 点（lap=周番号, fuelL=その周終了時の残燃料）
+export interface FuelPoint {
+  lap: number;
+  fuelL: number;
+}
+export interface FuelSeries {
+  plan: FuelPoint[];
+  actual: FuelPoint[];
+  startFuelL: number;
+  tankCapacityL: number;
+}
+
+type Mode = 'lapTime' | 'progress' | 'fuel';
 
 // 計画 vs 実績チャート。2 つの表示を切り替えられる:
 // - ラップタイム: 横軸=周、縦軸=ラップタイム（ピット周は外れ値のため除外）
@@ -43,17 +55,20 @@ export default function LapChart({
   series,
   planSeries,
   progress,
+  fuelSeries,
   raceDurationMin,
   assumedLapSec,
 }: {
   series: LapPoint[];
   planSeries?: PlanPoint[];
   progress?: { plan: ProgressPoint[]; actual: ProgressPoint[] };
+  fuelSeries?: FuelSeries;
   raceDurationMin?: number;
   assumedLapSec: number;
 }) {
   const [mode, setMode] = useState<Mode>('lapTime');
   const hasProgress = progress != null && (progress.plan.length > 0 || progress.actual.length > 0);
+  const hasFuel = fuelSeries != null && (fuelSeries.plan.length > 0 || fuelSeries.actual.length > 0);
 
   return (
     <div className="space-y-2">
@@ -63,12 +78,13 @@ export default function LapChart({
             [
               ['lapTime', 'ラップタイム'],
               ['progress', '周回数推移'],
+              ['fuel', '燃料残量'],
             ] as const
           ).map(([m, label]) => (
             <button
               key={m}
               onClick={() => setMode(m)}
-              disabled={m === 'progress' && !hasProgress}
+              disabled={(m === 'progress' && !hasProgress) || (m === 'fuel' && !hasFuel)}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                 mode === m
                   ? 'bg-primary text-primary-foreground'
@@ -82,8 +98,10 @@ export default function LapChart({
       </div>
       {mode === 'lapTime' ? (
         <LapTimeChart series={series} planSeries={planSeries} assumedLapSec={assumedLapSec} />
-      ) : (
+      ) : mode === 'progress' ? (
         <ProgressChart progress={progress!} raceDurationMin={raceDurationMin} />
+      ) : (
+        <FuelChart fuelSeries={fuelSeries!} />
       )}
     </div>
   );
@@ -277,6 +295,83 @@ function ProgressChart({
             name="actual"
             type="stepAfter"
             dataKey="laps"
+            stroke="var(--primary)"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        )}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── 燃料残量推移（横軸=Lap、縦軸=残L。給油で跳ね上がるノコギリ形） ──────────────────────────
+function FuelChart({ fuelSeries }: { fuelSeries: FuelSeries }) {
+  // Lap 0 = スタート時の搭載燃料を起点に足す
+  const plan = fuelSeries.plan.length > 0 ? [{ lap: 0, fuelL: fuelSeries.startFuelL }, ...fuelSeries.plan] : [];
+  const actual = fuelSeries.actual.length > 0 ? [{ lap: 0, fuelL: fuelSeries.startFuelL }, ...fuelSeries.actual] : [];
+
+  if (plan.length === 0 && actual.length === 0) {
+    return <div className="h-72 flex items-center justify-center text-muted-foreground text-sm">データがありません</div>;
+  }
+
+  const allFuel = [...plan.map((p) => p.fuelL), ...actual.map((p) => p.fuelL)];
+  const minFuel = Math.min(0, ...allFuel);
+  const maxLap = Math.max(...plan.map((p) => p.lap), ...actual.map((p) => p.lap));
+
+  return (
+    <ResponsiveContainer width="100%" height={288}>
+      <LineChart margin={{ top: 8, right: 12, bottom: 4, left: 8 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+        <XAxis
+          type="number"
+          dataKey="lap"
+          domain={[0, maxLap]}
+          allowDecimals={false}
+          tick={{ fontSize: 12 }}
+          stroke="var(--muted-foreground)"
+        />
+        <YAxis
+          type="number"
+          dataKey="fuelL"
+          domain={[Math.floor(minFuel), Math.ceil(fuelSeries.tankCapacityL)]}
+          tickFormatter={(v) => `${v}L`}
+          width={44}
+          tick={{ fontSize: 12 }}
+          stroke="var(--muted-foreground)"
+        />
+        <Tooltip
+          formatter={(v: number, name) => [`${v.toFixed(2)} L`, name === 'plan' ? '計画' : '実績']}
+          labelFormatter={(l) => (Number(l) === 0 ? 'スタート' : `Lap ${l}`)}
+          contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+        />
+        <Legend formatter={(v) => (v === 'plan' ? '計画' : '実績')} wrapperStyle={{ fontSize: 12 }} />
+        <ReferenceLine
+          y={0}
+          stroke="#dc2626"
+          strokeDasharray="4 4"
+          label={{ value: 'ガス欠', position: 'insideBottomRight', fontSize: 11, fill: '#dc2626' }}
+        />
+        {plan.length > 0 && (
+          <Line
+            data={plan}
+            name="plan"
+            type="linear"
+            dataKey="fuelL"
+            stroke="#f59e0b"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            dot={false}
+            isAnimationActive={false}
+          />
+        )}
+        {actual.length > 0 && (
+          <Line
+            data={actual}
+            name="actual"
+            type="linear"
+            dataKey="fuelL"
             stroke="var(--primary)"
             strokeWidth={2}
             dot={false}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getActiveRace } from '@/lib/live';
-import { getPlanState, savePlanStints } from '@/lib/plan';
+import { getPlanState, savePlanStints, PlanInputError } from '@/lib/plan';
 import type { PlanStintInput } from '@/lib/plan-calc';
 
 // 計画（スティント＋周単位展開＋集計）を返す
@@ -15,7 +15,8 @@ export async function GET() {
 }
 
 // スティント計画を丸ごと保存（周単位に再展開）。
-// body: { stints: PlanStintInput[], keepOverrides?: boolean }
+// body: { stints: PlanStintInput[], keepOverrides?: boolean, freezeCompleted?: boolean }
+// freezeCompleted=true はレース中の保存: 消化済み周の計画は変更せず、以降のみ再展開する。
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
@@ -40,10 +41,13 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'アクティブなレースがありません' }, { status: 400 });
     }
 
-    await savePlanStints(race.id, stints, body.keepOverrides === true);
+    await savePlanStints(race.id, stints, body.keepOverrides === true, body.freezeCompleted === true);
     const state = await getPlanState();
     return NextResponse.json(state);
   } catch (error) {
+    if (error instanceof PlanInputError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error('計画保存エラー:', error);
     return NextResponse.json({ error: '計画の保存に失敗しました' }, { status: 500 });
   }

@@ -84,6 +84,67 @@ export function expandPlan(stints: PlanStintInput[], assumed: AssumedTimes): Exp
   return laps;
 }
 
+// レース中の再展開用: 凍結境界より後だけを展開する。
+// - boundary = 走行中スティントの続き（消化済み lapInStint の次から totalLaps まで）
+// - futureStints = 境界より後の新スティント（先頭 OUT / 最終以外の末尾 IN）
+// lapNumber は startLapNumber+1 から通しで採番する。
+export interface TailBoundary {
+  stintNumber: number;
+  riderId: string | null;
+  targetLapSec: number | null;
+  doneLapsInStint: number; // 凍結済みのスティント内周数
+  totalLaps: number; // クランプ後の予定周回数
+}
+
+export function expandPlanTail(params: {
+  startLapNumber: number; // 最後の凍結（または実績）周。新規周はこの次から
+  boundary: TailBoundary | null; // null = 走行中スティントの続きなし
+  futureStints: PlanStintInput[];
+  assumed: AssumedTimes;
+}): ExpandedPlanLap[] {
+  const { startLapNumber, boundary, assumed } = params;
+  const futureStints = [...params.futureStints].sort((a, b) => a.stintNumber - b.stintNumber);
+  const laps: ExpandedPlanLap[] = [];
+  let lapNumber = startLapNumber;
+
+  if (boundary) {
+    const isLast = futureStints.length === 0;
+    for (let i = boundary.doneLapsInStint + 1; i <= boundary.totalLaps; i++) {
+      lapNumber += 1;
+      const outIn: 'OUT' | 'IN' | null = !isLast && i === boundary.totalLaps ? 'IN' : null;
+      laps.push({
+        lapNumber,
+        lapInStint: i,
+        stintNumber: boundary.stintNumber,
+        riderId: boundary.riderId,
+        condition: 'D',
+        outIn,
+        plannedTimeSec: basePlannedTime(outIn, 'D', boundary.targetLapSec, assumed),
+      });
+    }
+  }
+
+  futureStints.forEach((stint, idx) => {
+    const isLast = idx === futureStints.length - 1;
+    for (let i = 1; i <= stint.plannedLaps; i++) {
+      lapNumber += 1;
+      const outIn: 'OUT' | 'IN' | null =
+        i === 1 ? 'OUT' : !isLast && i === stint.plannedLaps ? 'IN' : null;
+      laps.push({
+        lapNumber,
+        lapInStint: i,
+        stintNumber: stint.stintNumber,
+        riderId: stint.riderId,
+        condition: 'D',
+        outIn,
+        plannedTimeSec: basePlannedTime(outIn, 'D', stint.targetLapSec, assumed),
+      });
+    }
+  });
+
+  return laps;
+}
+
 // 展開済み計画に周単位の上書きを適用する（lapNumber で突き合わせ）
 export function applyOverrides(
   laps: ExpandedPlanLap[],

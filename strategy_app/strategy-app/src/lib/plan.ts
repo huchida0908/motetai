@@ -5,6 +5,7 @@ import { getActiveRace } from '@/lib/live';
 import type { FuelRates } from '@/lib/race-calc';
 import {
   expandPlan,
+  expandPlanTail,
   applyOverrides,
   computePlanState,
   basePlannedTime,
@@ -16,7 +17,7 @@ export async function getPlanState() {
   const race = await getActiveRace();
   if (!race) return { race: null } as const;
 
-  const [stints, laps, riders] = await Promise.all([
+  const [stints, laps, riders, actualAgg] = await Promise.all([
     prisma.planStint.findMany({
       where: { raceConfigId: race.id },
       orderBy: { stintNumber: 'asc' },
@@ -26,6 +27,10 @@ export async function getPlanState() {
       orderBy: { lapNumber: 'asc' },
     }),
     prisma.rider.findMany({ orderBy: { displayOrder: 'asc' } }),
+    prisma.actualLap.aggregate({
+      where: { raceConfigId: race.id },
+      _max: { lapNumber: true },
+    }),
   ]);
 
   const rates: FuelRates = {
@@ -62,15 +67,39 @@ export async function getPlanState() {
     tankCapacityL: race.tankCapacityL,
   });
 
+  // レース進行状況（レース中の計画変更で消化済み周を凍結するための境界情報）
+  const maxActualLap = actualAgg._max.lapNumber ?? 0;
+  const planLen = laps.length > 0 ? laps[laps.length - 1].lapNumber : 0;
+  const frozenUpTo = Math.min(maxActualLap, planLen);
+  let boundaryStintNumber: number | null = null;
+  let frozenLapsInBoundary: number | null = null;
+  if (frozenUpTo > 0) {
+    const lastFrozen = [...laps].filter((l) => l.lapNumber <= frozenUpTo).pop()!;
+    boundaryStintNumber = stints.find((s) => s.id === lastFrozen.planStintId)?.stintNumber ?? null;
+    frozenLapsInBoundary = lastFrozen.lapInStint;
+  }
+
   return {
+    progress: {
+      maxActualLap,
+      raceStarted: race.startedAt != null,
+      frozenUpTo,
+      boundaryStintNumber,
+      frozenLapsInBoundary,
+    },
     race: {
       id: race.id,
       raceName: race.raceName,
       raceDurationMin: race.raceDurationMin,
+      startedAt: race.startedAt?.toISOString() ?? null,
       tankCapacityL: race.tankCapacityL,
       startFuelL: race.startFuelL,
       pitLossSec: race.pitLossSec,
       maxStintLap: race.maxStintLap,
+      fuelRateDry: race.fuelRateDry,
+      fuelRateWet: race.fuelRateWet,
+      fuelRateSc: race.fuelRateSc,
+      fuelRateOutIn: race.fuelRateOutIn,
       assumedLapSec: race.assumedLapSec,
       assumedOutLapSec: race.assumedOutLapSec,
       assumedInLapSec: race.assumedInLapSec,
@@ -98,13 +127,27 @@ export type PlanState = Awaited<ReturnType<typeof getPlanState>>;
 
 // スティント計画を丸ごと置き換え、周単位計画に再展開して保存する。
 // keepOverrides=true なら既存の手動上書き（lapNumber 突き合わせ）を再適用する。
+// freezeCompleted=true（レース中の保存）なら、消化済み周（実績最大 lapNumber 以下）の
+// PlanLap は物理的に残し、それ以降だけを新しいスティント構成で再展開する。
 export async function savePlanStints(
   raceConfigId: string,
   inputs: PlanStintInput[],
   keepOverrides: boolean,
+  freezeCompleted = false,
 ) {
   const race = await prisma.raceConfig.findUnique({ where: { id: raceConfigId } });
   if (!race) throw new Error('レース設定が見つかりません');
+
+  // stintNumber を 1..n に振り直し（並べ替え・削除後の穴を詰める）
+  const normalized = [...inputs]
+    .sort((a, b) => a.stintNumber - b.stintNumber)
+    .map((s, i) => ({ ...s, stintNumber: i + 1 }));
+
+  if (freezeCompleted) {
+    const done = await savePlanStintsFrozen(raceConfigId, race, normalized, keepOverrides);
+    if (done) return;
+    // 実績 0 周 or 計画なし → 従来の全置換へフォールバック
+  }
 
   // 既存の上書きを退避
   const overrides: PlanLapOverride[] = keepOverrides
@@ -114,11 +157,6 @@ export async function savePlanStints(
         })
       ).map((l) => ({ lapNumber: l.lapNumber, plannedTimeSec: l.plannedTimeSec, condition: l.condition }))
     : [];
-
-  // stintNumber を 1..n に振り直し（並べ替え・削除後の穴を詰める）
-  const normalized = [...inputs]
-    .sort((a, b) => a.stintNumber - b.stintNumber)
-    .map((s, i) => ({ ...s, stintNumber: i + 1 }));
 
   const expanded = applyOverrides(expandPlan(normalized, race), overrides);
 
@@ -156,6 +194,123 @@ export async function savePlanStints(
       }
     }
   });
+}
+
+// ユーザー入力起因の計画エラー（API は 400 で返す）
+export class PlanInputError extends Error {}
+
+// レース中の保存: 消化済み周を凍結し、境界スティントの続き＋以降のスティントだけ再展開する。
+// 凍結境界 frozenUpTo = min(実績最大 lapNumber, 計画最終 lapNumber)。
+// 凍結できるものが無い場合は false を返し、呼び出し元が従来の全置換にフォールバックする。
+async function savePlanStintsFrozen(
+  raceConfigId: string,
+  race: NonNullable<Awaited<ReturnType<typeof prisma.raceConfig.findUnique>>>,
+  normalized: PlanStintInput[],
+  keepOverrides: boolean,
+): Promise<boolean> {
+  const [existingStints, existingLaps, actualAgg] = await Promise.all([
+    prisma.planStint.findMany({ where: { raceConfigId }, orderBy: { stintNumber: 'asc' } }),
+    prisma.planLap.findMany({ where: { raceConfigId }, orderBy: { lapNumber: 'asc' } }),
+    prisma.actualLap.aggregate({ where: { raceConfigId }, _max: { lapNumber: true } }),
+  ]);
+
+  const maxActual = actualAgg._max.lapNumber ?? 0;
+  const planLen = existingLaps.length > 0 ? existingLaps[existingLaps.length - 1].lapNumber : 0;
+  const frozenUpTo = Math.min(maxActual, planLen);
+  if (frozenUpTo === 0) return false;
+
+  const lastFrozen = [...existingLaps].filter((l) => l.lapNumber <= frozenUpTo).pop()!;
+  const boundaryStintRow = existingStints.find((s) => s.id === lastFrozen.planStintId);
+  if (!boundaryStintRow) throw new Error('計画データが不整合です（凍結境界のスティントが見つかりません）');
+  const boundaryNo = boundaryStintRow.stintNumber;
+
+  if (normalized.length < boundaryNo) {
+    throw new PlanInputError(`消化済みスティント（ST${boundaryNo} まで）は削除できません`);
+  }
+
+  // 境界スティントが消化しきっているか（実績が計画を超過した場合も継続なし扱い）
+  const boundaryFullyDone =
+    maxActual > planLen || lastFrozen.lapInStint >= boundaryStintRow.plannedLaps;
+
+  // 境界スティントへの入力反映: 周回数は走行済み周数未満に縮められない
+  const boundaryInput = normalized[boundaryNo - 1];
+  const boundaryTotalLaps = boundaryFullyDone
+    ? boundaryStintRow.plannedLaps
+    : Math.max(boundaryInput.plannedLaps, lastFrozen.lapInStint);
+
+  const futureStints = normalized
+    .slice(boundaryNo)
+    .map((s, i) => ({ ...s, stintNumber: boundaryNo + 1 + i }));
+
+  const tail = expandPlanTail({
+    startLapNumber: Math.max(maxActual, frozenUpTo),
+    boundary: boundaryFullyDone
+      ? null
+      : {
+          stintNumber: boundaryNo,
+          riderId: boundaryStintRow.riderId,
+          targetLapSec: boundaryInput.targetLapSec,
+          doneLapsInStint: lastFrozen.lapInStint,
+          totalLaps: boundaryTotalLaps,
+        },
+    futureStints,
+    assumed: race,
+  });
+
+  // 凍結周の上書きは行ごと残るので対象外。tail 側の上書きのみ再適用
+  const overrides: PlanLapOverride[] = keepOverrides
+    ? existingLaps
+        .filter((l) => l.isOverride && l.lapNumber > frozenUpTo)
+        .map((l) => ({ lapNumber: l.lapNumber, plannedTimeSec: l.plannedTimeSec, condition: l.condition }))
+    : [];
+  const tailWithOv = applyOverrides(tail, overrides);
+
+  const lapRow = (l: (typeof tailWithOv)[number], planStintId: string) => ({
+    raceConfigId,
+    planStintId,
+    lapNumber: l.lapNumber,
+    lapInStint: l.lapInStint,
+    riderId: l.riderId,
+    condition: l.condition,
+    outIn: l.outIn,
+    plannedTimeSec: l.plannedTimeSec,
+    isOverride: l.isOverride,
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.planLap.deleteMany({ where: { raceConfigId, lapNumber: { gt: frozenUpTo } } });
+    await tx.planStint.deleteMany({ where: { raceConfigId, stintNumber: { gt: boundaryNo } } });
+
+    // 境界スティント: 周回数と目標ラップのみ反映（担当・給油量は給油済みのため据え置き）
+    await tx.planStint.update({
+      where: { id: boundaryStintRow.id },
+      data: { plannedLaps: boundaryTotalLaps, targetLapSec: boundaryInput.targetLapSec },
+    });
+    const boundaryLaps = tailWithOv.filter((l) => l.stintNumber === boundaryNo);
+    if (boundaryLaps.length > 0) {
+      await tx.planLap.createMany({ data: boundaryLaps.map((l) => lapRow(l, boundaryStintRow.id)) });
+    }
+
+    for (const s of futureStints) {
+      const created = await tx.planStint.create({
+        data: {
+          raceConfigId,
+          stintNumber: s.stintNumber,
+          riderId: s.riderId,
+          plannedLaps: s.plannedLaps,
+          targetLapSec: s.targetLapSec,
+          refuelL: s.refuelL,
+          note: s.note ?? null,
+        },
+      });
+      const stintLaps = tailWithOv.filter((l) => l.stintNumber === s.stintNumber);
+      if (stintLaps.length > 0) {
+        await tx.planLap.createMany({ data: stintLaps.map((l) => lapRow(l, created.id)) });
+      }
+    }
+  });
+
+  return true;
 }
 
 // 周単位の上書き（または上書き解除）

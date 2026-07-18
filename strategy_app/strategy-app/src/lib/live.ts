@@ -12,6 +12,7 @@ import {
   type FuelRates,
   type LapLike,
 } from '@/lib/race-calc';
+import { computePlanState, type PlanStintInput } from '@/lib/plan-calc';
 
 export async function getActiveRace() {
   return prisma.raceConfig.findFirst({
@@ -24,7 +25,7 @@ export async function getLiveState(nowMs: number) {
   const race = await getActiveRace();
   if (!race) return { race: null } as const;
 
-  const [stints, riders, laps, planLaps] = await Promise.all([
+  const [stints, riders, laps, planLaps, planStints] = await Promise.all([
     prisma.stint.findMany({
       where: { raceConfigId: race.id },
       orderBy: { stintNumber: 'asc' },
@@ -38,6 +39,10 @@ export async function getLiveState(nowMs: number) {
     prisma.planLap.findMany({
       where: { raceConfigId: race.id },
       orderBy: { lapNumber: 'asc' },
+    }),
+    prisma.planStint.findMany({
+      where: { raceConfigId: race.id },
+      orderBy: { stintNumber: 'asc' },
     }),
   ]);
 
@@ -145,6 +150,39 @@ export async function getLiveState(nowMs: number) {
     return { t: Math.max(0, t), laps: l.lapNumber };
   });
 
+  // 燃料推移チャート用の系列（計画=持ち越しモデルで再計算、実績=スティント燃料推移を流用）
+  let fuelPlan: Array<{ lap: number; fuelL: number }> = [];
+  if (planLaps.length > 0 && planStints.length > 0) {
+    const stintInputs: PlanStintInput[] = planStints.map((s) => ({
+      stintNumber: s.stintNumber,
+      riderId: s.riderId,
+      plannedLaps: s.plannedLaps,
+      targetLapSec: s.targetLapSec,
+      refuelL: s.refuelL,
+    }));
+    const stintNoById = new Map(planStints.map((s) => [s.id, s.stintNumber]));
+    const expandedLike = planLaps.map((l) => ({
+      lapNumber: l.lapNumber,
+      lapInStint: l.lapInStint,
+      stintNumber: stintNoById.get(l.planStintId) ?? 0,
+      riderId: l.riderId,
+      condition: l.condition,
+      outIn: (l.outIn as 'OUT' | 'IN' | null) ?? null,
+      plannedTimeSec: l.plannedTimeSec,
+      isOverride: l.isOverride,
+    }));
+    const { laps: planComputed } = computePlanState(expandedLike, stintInputs, rates, {
+      pitLossSec: race.pitLossSec,
+      startFuelL: race.startFuelL,
+      tankCapacityL: race.tankCapacityL,
+    });
+    fuelPlan = planComputed.map((l) => ({ lap: l.lapNumber, fuelL: l.fuelRemainingL }));
+  }
+  const fuelActual = laps.flatMap((l) => {
+    const f = l.id ? fuelByLapId.get(l.id) : null;
+    return f ? [{ lap: l.lapNumber, fuelL: f.fuelRemainingL }] : [];
+  });
+
   // 直近ラップ一覧（最大 20 件）に燃料情報を付与
   const recentLaps = laps
     .slice(-20)
@@ -196,6 +234,12 @@ export async function getLiveState(nowMs: number) {
     series,
     planSeries,
     progress: { plan: planProgress, actual: actualProgress },
+    fuelSeries: {
+      plan: fuelPlan,
+      actual: fuelActual,
+      startFuelL: race.startFuelL,
+      tankCapacityL: race.tankCapacityL,
+    },
     recentLaps,
   };
 }

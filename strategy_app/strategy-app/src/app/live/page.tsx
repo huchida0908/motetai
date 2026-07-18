@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatLapTime, formatMinSec, minSecToSeconds } from '@/lib/time';
 import { CONDITION_LABEL, CONDITION_COLOR, CONDITIONS } from '@/lib/constants';
+import RaceClockTile from '@/components/RaceClockTile';
 
 interface Rider {
   id: string;
@@ -28,6 +29,7 @@ interface LiveResponse {
     tankCapacityL: number;
     startFuelL: number;
     startedAt: string | null;
+    raceDurationMin: number;
   } | null;
   riders: Rider[];
   currentStint: { id: string; stintNumber: number; riderId: string | null; plannedLaps: number | null } | null;
@@ -203,9 +205,9 @@ export default function LivePage() {
             ・ 通算 {t.totalLaps}周 / スティント {t.lapsInStint}周
           </p>
         </div>
-        {!live.race.startedAt && (
+        {(!live.race.startedAt || new Date(live.race.startedAt).getTime() > Date.now()) && (
           <Button onClick={startRace} disabled={busy} variant="secondary">
-            レース開始（時計スタート）
+            {live.race.startedAt ? '今すぐ開始（設定時刻を上書き）' : 'レース開始（時計スタート）'}
           </Button>
         )}
       </div>
@@ -227,7 +229,7 @@ export default function LivePage() {
           accent
         />
         <Tile label="直近3周平均" value={formatLapTime(t.recent3Avg)} />
-        <Tile label="残り時間" value={t.clock ? formatMinSec(t.clock.remainingSec) : '未計測'} />
+        <RaceClockTile startedAt={live.race.startedAt} raceDurationMin={live.race.raceDurationMin} variant="tile" />
         <Tile
           label="着地予測"
           value={t.projectedTotalLaps != null ? `${t.projectedTotalLaps} 周` : '未計測'}

@@ -4,11 +4,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { toDatetimeLocal } from '@/lib/time';
 
 interface Race {
   id: string;
   raceName: string;
   raceDurationMin: number;
+  startedAt: string | null;
   courseLengthKm: number;
   tankCapacityL: number;
   startFuelL: number;
@@ -56,6 +58,10 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState('');
   const [newRider, setNewRider] = useState({ name: '', expectedLapTime: '146', color: '#3b82f6' });
 
+  // 開始/終了時刻（datetime-local 値）。両方入力するとレース時間(分)を自動計算する
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+
   const load = useCallback(async () => {
     const [rc, rd] = await Promise.all([
       fetch('/api/race-config').then((r) => r.json()),
@@ -63,7 +69,24 @@ export default function SettingsPage() {
     ]);
     setRace(rc.race);
     setRiders(rd.riders);
+    const loaded: Race | null = rc.race;
+    if (loaded?.startedAt) {
+      setStartTime(toDatetimeLocal(loaded.startedAt));
+      setEndTime(toDatetimeLocal(new Date(new Date(loaded.startedAt).getTime() + loaded.raceDurationMin * 60000)));
+    } else {
+      setStartTime('');
+      setEndTime('');
+    }
   }, []);
+
+  // 開始・終了の両方が有効なら差からレース時間(分)を導出。終了≦開始は invalid
+  const autoDuration = (() => {
+    if (!startTime || !endTime) return null;
+    const s = new Date(startTime).getTime();
+    const e = new Date(endTime).getTime();
+    if (Number.isNaN(s) || Number.isNaN(e)) return null;
+    return { min: (e - s) / 60000, invalid: e <= s };
+  })();
 
   useEffect(() => {
     load();
@@ -71,15 +94,33 @@ export default function SettingsPage() {
 
   const saveRace = useCallback(async () => {
     if (!race) return;
+    if (autoDuration?.invalid) {
+      setMsg('終了時刻は開始時刻より後にしてください');
+      return;
+    }
     setMsg('保存中…');
+    const body: Record<string, unknown> = { ...race };
+    if (startTime) body.startedAt = new Date(startTime).toISOString();
+    if (autoDuration && !autoDuration.invalid) body.raceDurationMin = autoDuration.min;
     const res = await fetch('/api/race-config', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(race),
+      body: JSON.stringify(body),
     });
     setMsg(res.ok ? '保存しました' : '保存に失敗しました');
     setTimeout(() => setMsg(''), 2000);
-  }, [race]);
+    if (res.ok) await load();
+  }, [race, startTime, autoDuration, load]);
+
+  const clearStart = useCallback(async () => {
+    if (!confirm('開始時刻をクリアします（レースクロックが未計測に戻ります）。よろしいですか？')) return;
+    await fetch('/api/race-config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startRace: false }),
+    });
+    await load();
+  }, [load]);
 
   const addRider = useCallback(async () => {
     if (!newRider.name.trim()) return;
@@ -116,18 +157,65 @@ export default function SettingsPage() {
             <label className="block text-xs text-muted-foreground mb-1">レース名</label>
             <Input value={race.raceName} onChange={(e) => setRace({ ...race, raceName: e.target.value })} className="max-w-xs" />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {NUM_FIELDS.map((f) => (
-              <div key={f.key}>
-                <label className="block text-xs text-muted-foreground mb-1">{f.label}</label>
+
+          {/* 開始/終了時刻 → レース時間の自動計算 */}
+          <div className="border rounded-md p-3 bg-muted/30 space-y-2">
+            <div className="text-sm font-medium">レース時間（開始・終了時刻から自動計算）</div>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">開始時刻</label>
                 <Input
-                  type="number"
-                  step={f.step ?? '1'}
-                  value={String(race[f.key])}
-                  onChange={(e) => setRace({ ...race, [f.key]: Number(e.target.value) })}
+                  type="datetime-local"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="w-56"
                 />
               </div>
-            ))}
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">終了時刻</label>
+                <Input
+                  type="datetime-local"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className="w-56"
+                />
+              </div>
+              {race.startedAt && (
+                <Button variant="outline" onClick={clearStart}>開始時刻をクリア</Button>
+              )}
+            </div>
+            {autoDuration?.invalid ? (
+              <p className="text-xs text-destructive">終了時刻は開始時刻より後にしてください</p>
+            ) : autoDuration ? (
+              <p className="text-xs text-muted-foreground">
+                レース時間 {autoDuration.min} 分として保存されます。開始時刻になるとクロックが自動で動き出します
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                両方入力するとレース時間(分)を自動計算します。開始時刻のみ空欄の場合は従来どおり「レース開始」ボタンで計測開始
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {NUM_FIELDS.map((f) => {
+              const isAutoDuration = f.key === 'raceDurationMin' && autoDuration != null && !autoDuration.invalid;
+              return (
+                <div key={f.key}>
+                  <label className="block text-xs text-muted-foreground mb-1">
+                    {f.label}
+                    {isAutoDuration ? '（自動計算）' : ''}
+                  </label>
+                  <Input
+                    type="number"
+                    step={f.step ?? '1'}
+                    value={isAutoDuration ? String(autoDuration.min) : String(race[f.key])}
+                    disabled={isAutoDuration}
+                    onChange={(e) => setRace({ ...race, [f.key]: Number(e.target.value) })}
+                  />
+                </div>
+              );
+            })}
           </div>
           <div className="flex items-center gap-3">
             <Button onClick={saveRace}>保存</Button>

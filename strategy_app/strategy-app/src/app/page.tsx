@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Fuel, Timer, Users, Flag } from 'lucide-react';
+import { Fuel, Timer, Users } from 'lucide-react';
+import RaceClockTile from '@/components/RaceClockTile';
 import { getLiveState } from '@/lib/live';
 import { formatLapTime, formatMinSec } from '@/lib/time';
 import { CONDITION_LABEL, CONDITION_COLOR } from '@/lib/constants';
@@ -63,9 +64,7 @@ export default async function Dashboard() {
         <StatCard icon={<Users className="h-4 w-4 text-muted-foreground" />} title="現在の走者"
           value={riderName(currentStint?.riderId ?? null)}
           sub={t.recent3Avg != null ? `直近3周平均 ${formatLapTime(t.recent3Avg)}` : ''} />
-        <StatCard icon={<Flag className="h-4 w-4 text-muted-foreground" />} title="残り時間"
-          value={t.clock ? formatMinSec(t.clock.remainingSec) : '未計測'}
-          sub={t.clock ? `経過 ${formatMinSec(t.clock.elapsedSec)}` : 'レース開始で計測開始'} />
+        <RaceClockTile startedAt={live.race.startedAt} raceDurationMin={live.race.raceDurationMin} variant="stat" />
       </div>
 
       {/* レースクロック予測 */}
@@ -95,7 +94,7 @@ export default async function Dashboard() {
         <CardHeader>
           <CardTitle>ラップ推移（計画 vs 実績）</CardTitle>
           <CardDescription>
-            {live.planSeries.length > 0 ? '橙=計画 / 青=実績。右上で表示を切替（ラップタイム / 周回数×経過時間）' : 'ピット周は除外。橙の点線が想定タイム'}
+            {live.planSeries.length > 0 ? '橙=計画 / 青=実績。右上で表示を切替（ラップタイム / 周回数×経過時間 / 燃料残量）' : 'ピット周は除外。橙の点線が想定タイム'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -103,6 +102,7 @@ export default async function Dashboard() {
             series={live.series}
             planSeries={live.planSeries}
             progress={live.progress}
+            fuelSeries={live.fuelSeries}
             raceDurationMin={live.race.raceDurationMin}
             assumedLapSec={t.assumedLapSec}
           />
