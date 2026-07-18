@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatLapTime, formatMinSec, minSecToSeconds } from '@/lib/time';
 import { CONDITION_LABEL, CONDITION_COLOR, CONDITIONS } from '@/lib/constants';
 import RaceClockTile from '@/components/RaceClockTile';
+import { PanelLabel } from '@/components/panel-label';
 
 interface Rider {
   id: string;
@@ -200,9 +201,8 @@ export default function LivePage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">ライブ入力</h1>
-          <p className="text-muted-foreground text-sm">
-            {live.race.raceName} ／ 第 {live.currentStint?.stintNumber ?? '-'} スティント（{riderName(live.currentStint?.riderId ?? null)}）
-            ・ 通算 {t.totalLaps}周 / スティント {t.lapsInStint}周
+          <p className="mt-0.5 text-[10px] tracking-[0.3em] text-muted-foreground uppercase">
+            Live Timing ・ {live.race.raceName}
           </p>
         </div>
         {(!live.race.startedAt || new Date(live.race.startedAt).getTime() > Date.now()) && (
@@ -218,29 +218,38 @@ export default function LivePage() {
         </div>
       )}
 
-      {/* ライブタイル */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Tile label="残燃料" value={t.fuelRemainingL != null ? `${t.fuelRemainingL.toFixed(2)} L` : '-'} accent />
-        <Tile label="可能Lap数" value={t.possibleLaps != null ? t.possibleLaps.toFixed(1) : '-'} accent />
-        <Tile
-          label="次ピットまで"
-          value={`${t.lapsUntilNextPit} 周`}
-          sub={t.nextPitInSec != null ? `約 ${formatMinSec(t.nextPitInSec)} 後` : undefined}
-          accent
-        />
-        <Tile label="直近3周平均" value={formatLapTime(t.recent3Avg)} />
-        <RaceClockTile startedAt={live.race.startedAt} raceDurationMin={live.race.raceDurationMin} variant="tile" />
-        <Tile
-          label="着地予測"
-          value={t.projectedTotalLaps != null ? `${t.projectedTotalLaps} 周` : '未計測'}
-          sub={t.remainingPits != null ? `残ピット ${t.remainingPits}回` : undefined}
-        />
-      </div>
+      {/* 計器帯: 主要値を1本のストリップに集約 */}
+      <Card className="overflow-hidden">
+        <div className="h-[3px] bg-gradient-to-r from-primary via-primary/40 to-transparent" />
+        <div className="grid grid-cols-3 lg:grid-cols-7 divide-x divide-y lg:divide-y-0 divide-border">
+          <Mini label="残燃料" value={t.fuelRemainingL != null ? `${t.fuelRemainingL.toFixed(2)}L` : '—'} accent />
+          <Mini label="可能Lap" value={t.possibleLaps != null ? t.possibleLaps.toFixed(1) : '—'} accent />
+          <Mini
+            label="次ピットまで"
+            value={`${t.lapsUntilNextPit}周`}
+            sub={t.nextPitInSec != null ? `約${formatMinSec(t.nextPitInSec)}後` : undefined}
+            accent
+          />
+          <Mini label="直近3周平均" value={formatLapTime(t.recent3Avg)} />
+          <RaceClockTile startedAt={live.race.startedAt} raceDurationMin={live.race.raceDurationMin} variant="bare" />
+          <Mini
+            label="着地予測"
+            value={t.projectedTotalLaps != null ? `${t.projectedTotalLaps}周` : '—'}
+            sub={t.remainingPits != null ? `残ピット${t.remainingPits}回` : undefined}
+          />
+          <Mini
+            label="スティント"
+            value={`第${live.currentStint?.stintNumber ?? '-'}`}
+            sub={`${riderName(live.currentStint?.riderId ?? null)} ・ ${t.lapsInStint}周目`}
+          />
+        </div>
+      </Card>
 
-      {/* 入力パネル */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">ラップ記録</CardTitle>
+      {/* 入力（左）＋ 直近ラップ（右）: 入力しながらテーブルを確認できる2カラム */}
+      <div className="grid gap-4 xl:grid-cols-5 items-start">
+      <Card className="xl:col-span-3">
+        <CardHeader className="pb-2">
+          <PanelLabel>Input / ラップ記録</PanelLabel>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* タイム: 分 + 秒(小数) */}
@@ -307,7 +316,7 @@ export default function LivePage() {
                 className="px-4 h-10 rounded-md text-sm font-medium border transition-colors"
                 style={
                   outIn === o
-                    ? { backgroundColor: '#111827', color: '#fff', borderColor: '#111827' }
+                    ? { backgroundColor: 'var(--foreground)', color: 'var(--background)', borderColor: 'var(--foreground)' }
                     : { borderColor: 'var(--border)' }
                 }
               >
@@ -381,12 +390,12 @@ export default function LivePage() {
       </Card>
 
       {/* 直近ラップ */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">直近ラップ</CardTitle>
+      <Card className="xl:col-span-2">
+        <CardHeader className="pb-2">
+          <PanelLabel>Timing / 直近ラップ</PanelLabel>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
             <table className="min-w-full text-sm">
               <thead className="text-muted-foreground border-b">
                 <tr>
@@ -430,18 +439,18 @@ export default function LivePage() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
 
-function Tile({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
+// 計器帯の1マス
+function Mini({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
-    <Card className={accent ? 'accent-bar border-primary/30' : ''}>
-      <CardContent className="p-4">
-        <div className="text-xs tracking-[0.14em] text-muted-foreground">{label}</div>
-        <div className={`font-display text-2xl font-bold ${accent ? 'text-primary' : ''}`}>{value}</div>
-        {sub ? <div className="text-[11px] text-muted-foreground mt-0.5 font-mono">{sub}</div> : null}
-      </CardContent>
-    </Card>
+    <div className="p-3">
+      <div className="text-[10px] tracking-[0.16em] text-muted-foreground whitespace-nowrap">{label}</div>
+      <div className={`font-display text-xl font-bold whitespace-nowrap ${accent ? 'text-primary' : ''}`}>{value}</div>
+      {sub ? <div className="text-[10px] text-muted-foreground mt-0.5 font-mono truncate">{sub}</div> : null}
+    </div>
   );
 }

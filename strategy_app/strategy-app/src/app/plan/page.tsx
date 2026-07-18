@@ -426,7 +426,9 @@ export default function PlanPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">計画</h1>
-          <p className="text-muted-foreground text-sm">{plan.race.raceName} ／ 周単位の計画作成と実績比較</p>
+          <p className="mt-0.5 text-[10px] tracking-[0.3em] text-muted-foreground uppercase">
+            Strategy ・ {plan.race.raceName}
+          </p>
         </div>
         <div className="flex gap-1 rounded-md border p-1">
           {(['edit', 'compare'] as const).map((t) => (

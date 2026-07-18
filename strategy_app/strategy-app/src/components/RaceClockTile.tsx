@@ -5,6 +5,7 @@
 // クロックだけクライアント側で毎秒進める。startedAt が未来なら開始までのカウントダウン。
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PanelLabel } from '@/components/panel-label';
 import { Flag } from 'lucide-react';
 import { raceClock } from '@/lib/race-calc';
 import { formatMinSec } from '@/lib/time';
@@ -12,7 +13,8 @@ import { formatMinSec } from '@/lib/time';
 interface Props {
   startedAt: string | null;
   raceDurationMin: number;
-  variant?: 'stat' | 'tile'; // stat=ダッシュボードのStatCard風 / tile=ライブのTile風
+  // stat=カード(大) / tile=カード(小) / hero=タイミングストリップ用(カード無し・特大) / bare=ミニ計器帯用(カード無し・小)
+  variant?: 'stat' | 'tile' | 'hero' | 'bare';
 }
 
 function useClockText(startedAt: string | null, raceDurationMin: number) {
@@ -51,6 +53,26 @@ export default function RaceClockTile({ startedAt, raceDurationMin, variant = 's
     return sec > 0 && sec <= 600 && sub.startsWith('経過');
   })();
   const valueClass = isUrgent ? 'text-primary text-glow-red' : '';
+
+  if (variant === 'hero') {
+    return (
+      <div className="p-4 flex flex-col justify-center">
+        <PanelLabel>残り時間 / Remaining</PanelLabel>
+        <div className={`font-display text-4xl md:text-5xl font-bold leading-tight ${valueClass}`}>{value}</div>
+        {sub ? <div className="text-xs text-muted-foreground font-mono">{sub}</div> : null}
+      </div>
+    );
+  }
+
+  if (variant === 'bare') {
+    return (
+      <div className="p-3">
+        <div className="text-[10px] tracking-[0.16em] text-muted-foreground">残り時間</div>
+        <div className={`font-display text-xl font-bold ${valueClass}`}>{value}</div>
+        {sub ? <div className="text-[10px] text-muted-foreground font-mono truncate">{sub}</div> : null}
+      </div>
+    );
+  }
 
   if (variant === 'tile') {
     return (
