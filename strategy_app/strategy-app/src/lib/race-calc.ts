@@ -151,6 +151,71 @@ export function projectRace(p: ProjectInput) {
   };
 }
 
+// ─────────────────────────────────────────────
+// 計画準拠の前方シミュレーション。
+// 周単位計画（PlanLap）がある場合は、汎用の燃料/maxStintLap モデルではなく
+// 「計画のスティント割り」を残り時間ぶんだけ辿って着地周回・次ピットを推定する。
+// green 周は実績ペース（greenPaceSec）があればそれで、無ければ計画タイムでコスト計上。
+// OUT/IN/SC 周は計画タイムをそのまま使う。スティント境界（planStintId 変化）で pitLoss を加算。
+// ─────────────────────────────────────────────
+export interface PlanProjectionLap {
+  lapNumber: number;
+  planStintId: string;
+  outIn?: string | null; // "OUT" | "IN" | null
+  condition: string;
+  plannedTimeSec: number;
+}
+
+export interface PlanProjectInput {
+  remainingSec: number; // レース残り時間
+  totalLaps: number; // 実績で完了した通算周回
+  planLaps: PlanProjectionLap[]; // 計画の全周（lapNumber 昇順）
+  greenPaceSec: number | null; // 実績の直近 green 平均（無ければ null → 計画タイムを使う）
+  pitLossSec: number; // 1 回のピットロス（秒）
+}
+
+export function projectRaceByPlan(p: PlanProjectInput) {
+  const remaining = p.planLaps.filter((l) => l.lapNumber > p.totalLaps);
+  // 現在（最後に完了した周）のスティント。境界判定の初期値に使う（未走なら undefined）
+  const done = p.planLaps.filter((l) => l.lapNumber <= p.totalLaps);
+  let prevStintId: string | undefined = done.length > 0 ? done[done.length - 1].planStintId : undefined;
+
+  const lapCost = (l: PlanProjectionLap) => {
+    if (l.outIn === 'OUT' || l.outIn === 'IN' || l.condition === 'SC') return l.plannedTimeSec;
+    return p.greenPaceSec ?? l.plannedTimeSec;
+  };
+
+  let t = p.remainingSec;
+  let elapsed = 0;
+  let completed = 0;
+  let reachablePits = 0;
+  let nextPitInSec: number | null = null;
+
+  for (const lap of remaining) {
+    const isBoundary = prevStintId !== undefined && lap.planStintId !== prevStintId;
+    const cost = (isBoundary ? p.pitLossSec : 0) + lapCost(lap);
+    if (t < cost) break; // 残り時間で次の 1 周（＋必要ならピット）が回れない
+    t -= cost;
+    elapsed += cost;
+    if (isBoundary) reachablePits += 1;
+    completed += 1;
+    prevStintId = lap.planStintId;
+    // 次のピットイン（IN 周）に到達するまでの所要時間を記録
+    if (nextPitInSec === null && lap.outIn === 'IN') nextPitInSec = elapsed;
+  }
+
+  // 計画上あと何回ピットするか（時間切れに関係なく残っている IN 周の数）
+  const plannedRemainingPits = remaining.filter((l) => l.outIn === 'IN').length;
+
+  return {
+    // 計画の最後まで（＝計画総周回）を上限に着地。ペースが計画より遅ければ手前で止まる。
+    projectedTotalLaps: p.totalLaps + completed,
+    reachablePits,
+    plannedRemainingPits,
+    nextPitInSec,
+  };
+}
+
 // 対予定の貯金/借金（秒）。通常周について Σ(想定 - 実績)。正=貯金(速い)、負=借金。
 export function scheduleBank(laps: LapLike[], assumedLapSec: number): number | null {
   const green = laps.filter((l) => !l.outIn && l.condition !== 'SC');

@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatLapTime, formatMinSec, parseLapTime } from '@/lib/time';
-import { CONDITION_LABEL, CONDITION_COLOR } from '@/lib/constants';
-import { expandPlan, computePlanState, type PlanStintInput } from '@/lib/plan-calc';
+import { expandPlan, computePlanState, applyOverrides, type PlanStintInput } from '@/lib/plan-calc';
+import { LapCompareGrid, type GridRow, type CellPatch } from '@/components/plan/LapCompareGrid';
+import { FuelChart, type FuelPoint } from '@/components/LapChart';
 
 interface Rider {
   id: string;
@@ -66,17 +67,22 @@ interface PlanResponse {
   progress?: {
     maxActualLap: number;
     raceStarted: boolean;
-    frozenUpTo: number; // この lapNumber までの計画周は保存しても変更されない
-    boundaryStintNumber: number | null; // 走行中（凍結境界）のスティント番号
-    frozenLapsInBoundary: number | null; // 境界スティント内の走行済み周数
+    frozenUpTo: number;
+    boundaryStintNumber: number | null;
+    frozenLapsInBoundary: number | null;
   };
 }
-interface ActualPoint {
-  lap: number;
-  timeSec: number;
+// GET /api/laps の 1 行（インライン編集用に id を持つ）
+interface ActualLapRow {
+  id: string;
+  lapNumber: number;
+  lapTimeSec: number;
   condition: string;
-  outIn: string | null;
+  outIn: 'OUT' | 'IN' | null;
   riderId: string | null;
+  fuelUsedL: number | null;
+  stintId: string | null;
+  stintNumber: number | null;
 }
 
 // 編集用のスティント行（入力は文字列で保持し、保存時に数値へ変換）
@@ -89,11 +95,27 @@ interface DraftStint {
   tireChange: boolean;
 }
 
+// 周単位の staged 編集。値が undefined のキーは「その周を編集していない」を意味する
+interface PlanLapEdit {
+  riderId?: string | null;
+  condition?: string;
+  timeStr?: string;
+}
+interface ActualEdit {
+  riderId?: string | null;
+  condition?: string;
+  outIn?: 'OUT' | 'IN' | null;
+  timeStr?: string;
+}
+
+type View = 'plan' | 'actual' | 'compare';
+
 let draftSeq = 0;
 const nextKey = () => `draft-${++draftSeq}`;
 
 export default function PlanPage() {
-  const [tab, setTab] = useState<'edit' | 'compare'>('edit');
+  const [view, setView] = useState<View>('plan');
+  const [editing, setEditing] = useState(false);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [drafts, setDrafts] = useState<DraftStint[]>([]);
   const [dirty, setDirty] = useState(false);
@@ -103,13 +125,11 @@ export default function PlanPage() {
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
 
-  // 周単位の上書き編集
-  const [editingLap, setEditingLap] = useState<number | null>(null);
-  const [editTime, setEditTime] = useState('');
-  const [editCondition, setEditCondition] = useState('D');
-
-  // 比較タブ用の実績
-  const [actual, setActual] = useState<ActualPoint[] | null>(null);
+  // 実績（/api/laps）と周単位の staged 編集
+  const [actualLaps, setActualLaps] = useState<ActualLapRow[] | null>(null);
+  const [planLapEdits, setPlanLapEdits] = useState<Record<number, PlanLapEdit>>({});
+  const [actualEdits, setActualEdits] = useState<Record<number, ActualEdit>>({});
+  const [savingLaps, setSavingLaps] = useState(false);
 
   const applyPlan = useCallback((data: PlanResponse) => {
     setPlan(data);
@@ -124,6 +144,7 @@ export default function PlanPage() {
       })),
     );
     setDirty(false);
+    setPlanLapEdits({});
   }, []);
 
   const loadPlan = useCallback(async () => {
@@ -137,14 +158,14 @@ export default function PlanPage() {
     }
   }, [applyPlan]);
 
-  const loadActual = useCallback(async () => {
+  const loadActualLaps = useCallback(async () => {
     try {
-      const res = await fetch('/api/live', { cache: 'no-store' });
+      const res = await fetch('/api/laps', { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
-      setActual((data.series ?? []) as ActualPoint[]);
+      setActualLaps((data.laps ?? []) as ActualLapRow[]);
     } catch {
-      // 比較タブの補助データなので黙って握りつぶす
+      // 補助データなので握りつぶす
     }
   }, []);
 
@@ -152,20 +173,20 @@ export default function PlanPage() {
     loadPlan();
   }, [loadPlan]);
 
-  // 比較タブ表示中は実績を 10 秒ごとに更新
+  // 実績/対比ビュー表示中は 10 秒ごとに実績を更新（編集中はポーリング停止して上書きを避ける）
   useEffect(() => {
-    if (tab !== 'compare') return;
-    loadActual();
-    const id = setInterval(loadActual, 10000);
+    if (view === 'plan') return;
+    loadActualLaps();
+    if (editing) return;
+    const id = setInterval(loadActualLaps, 10000);
     return () => clearInterval(id);
-  }, [tab, loadActual]);
+  }, [view, editing, loadActualLaps]);
 
   const riderName = useCallback(
     (id: string | null) => plan?.riders.find((r) => r.id === id)?.name ?? '-',
     [plan],
   );
 
-  // スティント番号 → タイヤ交換フラグ（周単位テーブルの OUT 周バッジ用）
   const tireByStint = useMemo(
     () => new Map((plan?.stints ?? []).map((s) => [s.stintNumber, s.tireChange])),
     [plan],
@@ -177,15 +198,11 @@ export default function PlanPage() {
   };
 
   // ── レース中の凍結境界 ──────────────────────────
-  // レース開始済み＆実績ありなら、保存時に消化済み周の計画を凍結する（freezeCompleted）。
   const freezeActive = (plan?.progress?.raceStarted ?? false) && (plan?.progress?.maxActualLap ?? 0) > 0;
-  // 凍結境界のスティント番号（これ以前の行はロック表示）。凍結対象が無ければ 0
   const boundaryNo = freezeActive && (plan?.progress?.frozenUpTo ?? 0) > 0 ? plan?.progress?.boundaryStintNumber ?? 0 : 0;
   const frozenUpTo = freezeActive ? plan?.progress?.frozenUpTo ?? 0 : 0;
 
   // ── draft の燃料プレビュー ──────────────────────────
-  // 未保存の編集内容から開始燃料/終了時残量をリアルタイム計算する（plan-calc は純関数）。
-  // 入力が数値として不正な間は null（表示は「-」）。周単位の手動上書きは未適用（保存後にサーバー値で表示）。
   const draftFuel = useMemo(() => {
     const race = plan?.race;
     if (!race || drafts.length === 0) return null;
@@ -203,30 +220,103 @@ export default function PlanPage() {
         refuelL: refuel,
       });
     }
-    const expanded = expandPlan(stints, race).map((l) => ({ ...l, isOverride: false }));
+    // 保存済みの周単位手動上書き（タイム/路面）を同じ lapNumber に再適用する。
+    // これで「未編集の draft ＝ 保存済み計画」となり、集計タイルの差分が編集ぶんだけを表す。
+    // keepOverrides を外している間は保存時に上書きが消えるため、プレビューも上書きなしにする。
+    const overrides =
+      keepOverrides && (plan?.overrideCount ?? 0) > 0
+        ? (plan?.laps ?? [])
+            .filter((l) => l.isOverride)
+            .map((l) => ({ lapNumber: l.lapNumber, plannedTimeSec: l.plannedTimeSec, condition: l.condition }))
+        : [];
+    const expanded = applyOverrides(expandPlan(stints, race), overrides);
     const { laps, totals, stintStartFuel } = computePlanState(
       expanded,
       stints,
       { fuelRateDry: race.fuelRateDry, fuelRateWet: race.fuelRateWet, fuelRateSc: race.fuelRateSc, fuelRateOutIn: race.fuelRateOutIn },
       { pitLossSec: race.pitLossSec, startFuelL: race.startFuelL, tankCapacityL: race.tankCapacityL },
     );
-    // 各スティント最終周の残量 = スティント終了時残L（laps は lapNumber 昇順）
     const stintEndFuel: Record<number, number> = {};
-    for (const l of laps) stintEndFuel[l.stintNumber] = l.fuelRemainingL;
-    return { stintStartFuel, stintEndFuel, fuelShortStints: totals.fuelShortStints };
-  }, [drafts, plan]);
+    const fuelSeries: FuelPoint[] = [];
+    const byRider = new Map<string, { laps: number; driveSec: number }>();
+    let minFuelL = Infinity;
+    for (const l of laps) {
+      stintEndFuel[l.stintNumber] = l.fuelRemainingL;
+      fuelSeries.push({ lap: l.lapNumber, fuelL: l.fuelRemainingL });
+      if (l.fuelRemainingL < minFuelL) minFuelL = l.fuelRemainingL;
+      if (l.riderId) {
+        const b = byRider.get(l.riderId) ?? { laps: 0, driveSec: 0 };
+        b.laps += 1;
+        b.driveSec += l.plannedTimeSec;
+        byRider.set(l.riderId, b);
+      }
+    }
+    const raceDurationSec = race.raceDurationMin * 60;
+    return {
+      stintStartFuel,
+      stintEndFuel,
+      fuelShortStints: totals.fuelShortStints,
+      totals, // { totalLaps, totalTimeSec, pitCount, fuelShortStints }
+      overTime: totals.totalTimeSec - raceDurationSec, // 対レース時間（+超過 / −余り）
+      fuelSeries, // 燃料グラフ用（周ごとの残L）
+      minFuelL: laps.length > 0 ? minFuelL : null, // 最小燃料余裕（負ならガス欠）
+      byRider, // ライダー別の担当周回・走行時間
+    };
+  }, [drafts, plan, keepOverrides]);
+
+  // ── ライダー別サマリ（編集中の値と保存済みの差分） ──────────────────────────
+  const riderSummary = useMemo(() => {
+    if (!plan) return [];
+    // 保存済み計画からのライダー別集計（＝差分の基準）。
+    // draft 側と揃えるため、周の担当はスティントの走者で集計する（周単位の走者上書きは無視）。
+    const stintRider = new Map(plan.stints.map((s) => [s.stintNumber, s.riderId]));
+    const base = new Map<string, { laps: number; driveSec: number }>();
+    for (const l of plan.laps) {
+      const rid = stintRider.get(l.stintNumber) ?? l.riderId;
+      if (!rid) continue;
+      const b = base.get(rid) ?? { laps: 0, driveSec: 0 };
+      b.laps += 1;
+      b.driveSec += l.plannedTimeSec;
+      base.set(rid, b);
+    }
+    const sim = draftFuel?.byRider ?? base;
+    // スティント本数は現在の編集内容（drafts）から数える
+    const stintCount = new Map<string, number>();
+    for (const d of drafts) {
+      if (d.riderId) stintCount.set(d.riderId, (stintCount.get(d.riderId) ?? 0) + 1);
+    }
+    return plan.riders
+      .map((r) => {
+        const s = sim.get(r.id) ?? { laps: 0, driveSec: 0 };
+        const b = base.get(r.id) ?? { laps: 0, driveSec: 0 };
+        return {
+          rider: r,
+          laps: s.laps,
+          driveSec: s.driveSec,
+          stints: stintCount.get(r.id) ?? 0,
+          avgSec: s.laps > 0 ? s.driveSec / s.laps : null,
+          dLaps: draftFuel ? s.laps - b.laps : 0,
+        };
+      })
+      .filter((x) => x.laps > 0 || x.stints > 0);
+  }, [plan, drafts, draftFuel]);
 
   // ── スティント編集操作 ──────────────────────────
   const updateDraft = (key: string, patch: Partial<DraftStint>) => {
     setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
     setDirty(true);
   };
+  // 周回数を ±1（1 未満にはしない）。数値でない入力途中は 0 起点で扱う
+  const stepLaps = (key: string, cur: string, delta: number) => {
+    const n = Number(cur);
+    const base = Number.isFinite(n) ? Math.round(n) : 0;
+    updateDraft(key, { plannedLaps: String(Math.max(1, base + delta)) });
+  };
   const moveDraft = (key: string, dir: -1 | 1) => {
     setDrafts((prev) => {
       const idx = prev.findIndex((d) => d.key === key);
       const to = idx + dir;
       if (idx < 0 || to < 0 || to >= prev.length) return prev;
-      // 凍結境界（走行済み/走行中スティント）へは移動不可
       if (to < boundaryNo) return prev;
       const next = [...prev];
       [next[idx], next[to]] = [next[to], next[idx]];
@@ -249,7 +339,6 @@ export default function PlanPage() {
         riderId: rider?.id ?? '',
         plannedLaps: String(plan.race!.maxStintLap),
         targetLap: rider ? formatLapTime(rider.expectedLapTime) : '',
-        // 給油量（追加L）。ST1 は未使用（スタート燃料を使う）なので 0
         refuelL: prev.length === 0 ? '0' : String(plan.race!.tankCapacityL),
         tireChange: false,
       },
@@ -257,7 +346,6 @@ export default function PlanPage() {
     setDirty(true);
   };
 
-  // 給油量を全ピット（ST2 以降）へ一括適用
   const applyBulkRefuel = () => {
     const v = Number(bulkRefuel);
     if (!Number.isFinite(v) || v < 0) {
@@ -275,7 +363,6 @@ export default function PlanPage() {
     for (let i = 0; i < drafts.length; i++) {
       const d = drafts[i];
       const laps = Number(d.plannedLaps);
-      // ST1 の給油量は未使用。空欄は 0（無給油ピット）として扱う
       const refuel = i === 0 || d.refuelL.trim() === '' ? 0 : Number(d.refuelL);
       const target = d.targetLap.trim() === '' ? null : parseLapTime(d.targetLap);
       if (!Number.isInteger(laps) || laps < 1) {
@@ -339,81 +426,351 @@ export default function PlanPage() {
     }
   }, [applyPlan]);
 
-  // ── 周単位の上書き ──────────────────────────
-  const startEditLap = (lap: PlanLap) => {
-    setEditingLap(lap.lapNumber);
-    setEditTime(formatLapTime(lap.plannedTimeSec));
-    setEditCondition(lap.condition);
-  };
-  const submitLapOverride = useCallback(async () => {
-    if (editingLap == null) return;
-    const timeSec = parseLapTime(editTime);
-    if (timeSec == null || timeSec <= 0) {
-      setError('タイムの形式が不正です（例 2:26.271）');
-      return;
-    }
-    setBusy(true);
-    try {
-      const res = await fetch('/api/plan/laps', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lapNumber: editingLap, plannedTimeSec: timeSec, condition: editCondition }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? '上書きに失敗しました');
-      applyPlan(data);
-      setEditingLap(null);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '上書きに失敗しました');
-    } finally {
-      setBusy(false);
-    }
-  }, [editingLap, editTime, editCondition, applyPlan]);
+  // ── 周単位 staged 編集ハンドラ ──────────────────────────
+  const mergePlanEdit = (laps: number[], patch: CellPatch) =>
+    setPlanLapEdits((prev) => {
+      const next = { ...prev };
+      for (const lap of laps) {
+        const cur = { ...(next[lap] ?? {}) };
+        if (patch.riderId !== undefined) cur.riderId = patch.riderId;
+        if (patch.condition !== undefined) cur.condition = patch.condition;
+        if (patch.timeStr !== undefined) cur.timeStr = patch.timeStr;
+        next[lap] = cur;
+      }
+      return next;
+    });
+  const mergeActualEdit = (laps: number[], patch: CellPatch) =>
+    setActualEdits((prev) => {
+      const next = { ...prev };
+      for (const lap of laps) {
+        const cur = { ...(next[lap] ?? {}) };
+        if (patch.riderId !== undefined) cur.riderId = patch.riderId;
+        if (patch.condition !== undefined) cur.condition = patch.condition;
+        if (patch.outIn !== undefined) cur.outIn = patch.outIn;
+        if (patch.timeStr !== undefined) cur.timeStr = patch.timeStr;
+        next[lap] = cur;
+      }
+      return next;
+    });
 
-  const clearLapOverride = useCallback(
-    async (lapNumber: number) => {
-      setBusy(true);
+  const planEditCount = Object.keys(planLapEdits).length;
+  const actualEditCount = Object.keys(actualEdits).length;
+
+  // 計画: 上書き解除（選択周を即サーバー解除＋staged 破棄）
+  const resetPlanLaps = useCallback(
+    async (laps: number[]) => {
+      setPlanLapEdits((prev) => {
+        const n = { ...prev };
+        laps.forEach((l) => delete n[l]);
+        return n;
+      });
+      const overrideLaps = laps.filter((l) => plan?.laps.find((pl) => pl.lapNumber === l)?.isOverride);
+      if (overrideLaps.length === 0) return;
+      setSavingLaps(true);
       try {
         const res = await fetch('/api/plan/laps', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lapNumber, clear: true }),
+          body: JSON.stringify({ overrides: overrideLaps.map((l) => ({ lapNumber: l, clear: true })) }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? '解除に失敗しました');
         applyPlan(data);
+        flash(`${overrideLaps.length}周の上書きを解除しました`);
       } catch (e) {
         setError(e instanceof Error ? e.message : '解除に失敗しました');
       } finally {
-        setBusy(false);
+        setSavingLaps(false);
       }
     },
-    [applyPlan],
+    [plan, applyPlan],
   );
 
-  // ── 比較データ ──────────────────────────
-  const comparison = useMemo(() => {
-    if (!plan || !actual) return null;
-    const actualByLap = new Map(actual.map((a) => [a.lap, a]));
-    let cumDiff = 0;
-    const rows = plan.laps.map((p) => {
-      const a = actualByLap.get(p.lapNumber) ?? null;
-      const diff = a ? a.timeSec - p.plannedTimeSec : null;
-      if (diff != null) cumDiff += diff;
-      return { plan: p, actual: a, diff, cumDiff: a ? cumDiff : null };
+  // 実績: 選択周の staged 編集を取消
+  const resetActualLaps = (laps: number[]) =>
+    setActualEdits((prev) => {
+      const n = { ...prev };
+      laps.forEach((l) => delete n[l]);
+      return n;
     });
-    // 計画に無い実績周（計画超過分）も末尾に足す
-    const extra = actual.filter((a) => a.lap > plan.laps.length);
-    return {
-      rows,
-      extra,
-      actualLaps: actual.length,
-      cumDiffSec: cumDiff,
-      planPitLaps: plan.laps.filter((l) => l.outIn === 'IN').map((l) => l.lapNumber),
-      actualPitLaps: actual.filter((a) => a.outIn === 'IN').map((a) => a.lap),
+
+  // 計画: staged 上書きをまとめて保存
+  const savePlanLapEdits = useCallback(async () => {
+    const overrides: Array<{ lapNumber: number; plannedTimeSec?: number; condition?: string; riderId?: string | null }> = [];
+    for (const [lapStr, e] of Object.entries(planLapEdits)) {
+      const lap = Number(lapStr);
+      const o: { lapNumber: number; plannedTimeSec?: number; condition?: string; riderId?: string | null } = { lapNumber: lap };
+      if (e.riderId !== undefined) o.riderId = e.riderId;
+      if (e.condition !== undefined) o.condition = e.condition;
+      if (e.timeStr !== undefined && e.timeStr.trim() !== '') {
+        const t = parseLapTime(e.timeStr);
+        if (t == null || t <= 0) {
+          setError(`Lap ${lap}: タイムの形式が不正です（例 2:26.271）`);
+          return;
+        }
+        o.plannedTimeSec = t;
+      }
+      overrides.push(o);
+    }
+    if (overrides.length === 0) return;
+    setSavingLaps(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/plan/laps', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ overrides }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? '保存に失敗しました');
+      applyPlan(data);
+      flash(`計画 ${overrides.length}周を上書き保存しました`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存に失敗しました');
+    } finally {
+      setSavingLaps(false);
+    }
+  }, [planLapEdits, applyPlan]);
+
+  // 実績: staged 編集をまとめて保存
+  const saveActualLapEdits = useCallback(async () => {
+    if (!actualLaps) return;
+    const updates: Array<{ id: string; lapTimeSec?: number; condition?: string; outIn?: 'OUT' | 'IN' | null; riderId?: string | null }> = [];
+    for (const [lapStr, e] of Object.entries(actualEdits)) {
+      const lap = Number(lapStr);
+      const row = actualLaps.find((a) => a.lapNumber === lap);
+      if (!row) continue;
+      const u: { id: string; lapTimeSec?: number; condition?: string; outIn?: 'OUT' | 'IN' | null; riderId?: string | null } = { id: row.id };
+      if (e.riderId !== undefined) u.riderId = e.riderId;
+      if (e.condition !== undefined) u.condition = e.condition;
+      if (e.outIn !== undefined) u.outIn = e.outIn;
+      if (e.timeStr !== undefined && e.timeStr.trim() !== '') {
+        const t = parseLapTime(e.timeStr);
+        if (t == null || t <= 0) {
+          setError(`Lap ${lap}: タイムの形式が不正です（例 2:26.271）`);
+          return;
+        }
+        u.lapTimeSec = t;
+      }
+      updates.push(u);
+    }
+    if (updates.length === 0) return;
+    setSavingLaps(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/laps', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? '保存に失敗しました');
+      setActualEdits({});
+      await loadActualLaps();
+      flash(`実績 ${updates.length}周を保存しました`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存に失敗しました');
+    } finally {
+      setSavingLaps(false);
+    }
+  }, [actualEdits, actualLaps, loadActualLaps]);
+
+  // 実績: 1周削除
+  const deleteActualLap = useCallback(
+    async (lapNumber: number) => {
+      const row = actualLaps?.find((a) => a.lapNumber === lapNumber);
+      if (!row) return;
+      if (!confirm(`Lap ${lapNumber} の実績を削除します。よろしいですか？`)) return;
+      setSavingLaps(true);
+      try {
+        const res = await fetch(`/api/laps/${row.id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('削除に失敗しました');
+        setActualEdits((prev) => {
+          const n = { ...prev };
+          delete n[lapNumber];
+          return n;
+        });
+        await loadActualLaps();
+        flash(`Lap ${lapNumber} を削除しました`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : '削除に失敗しました');
+      } finally {
+        setSavingLaps(false);
+      }
+    },
+    [actualLaps, loadActualLaps],
+  );
+
+  // ── グリッド行の生成 ──────────────────────────
+  const planRows: GridRow[] = useMemo(() => {
+    if (!plan) return [];
+    return plan.laps.map((l) => {
+      const e = planLapEdits[l.lapNumber];
+      const effTimeSec = e?.timeStr != null && e.timeStr.trim() !== '' ? parseLapTime(e.timeStr) ?? l.plannedTimeSec : l.plannedTimeSec;
+      const frozen = l.lapNumber <= frozenUpTo;
+      return {
+        lapNumber: l.lapNumber,
+        stintNumber: l.stintNumber,
+        selectable: !frozen,
+        riderId: e?.riderId !== undefined ? e.riderId : l.riderId,
+        condition: e?.condition ?? l.condition,
+        outIn: l.outIn,
+        timeSec: effTimeSec,
+        timeStr: e?.timeStr,
+        edited: l.isOverride || e != null,
+        frozen,
+        fuelRemainingL: l.fuelRemainingL,
+        cumTimeSec: l.cumTimeSec,
+        tireChange: tireByStint.get(l.stintNumber) ?? false,
+      };
+    });
+  }, [plan, planLapEdits, frozenUpTo, tireByStint]);
+
+  const actualRows: GridRow[] = useMemo(() => {
+    if (!actualLaps) return [];
+    return actualLaps.map((a) => {
+      const e = actualEdits[a.lapNumber];
+      const effTimeSec = e?.timeStr != null && e.timeStr.trim() !== '' ? parseLapTime(e.timeStr) ?? a.lapTimeSec : a.lapTimeSec;
+      return {
+        lapNumber: a.lapNumber,
+        stintNumber: a.stintNumber,
+        selectable: true,
+        riderId: e?.riderId !== undefined ? e.riderId : a.riderId,
+        condition: e?.condition ?? a.condition,
+        outIn: e?.outIn !== undefined ? e.outIn : a.outIn,
+        timeSec: effTimeSec,
+        timeStr: e?.timeStr,
+        edited: e != null,
+      };
+    });
+  }, [actualLaps, actualEdits]);
+
+  const compareRows: GridRow[] = useMemo(() => {
+    if (!plan) return [];
+    const actualByLap = new Map((actualLaps ?? []).map((a) => [a.lapNumber, a]));
+    let cum = 0;
+    const rows: GridRow[] = plan.laps.map((p) => {
+      const a = actualByLap.get(p.lapNumber) ?? null;
+      const e = a ? actualEdits[p.lapNumber] : undefined;
+      const effTimeSec = a
+        ? e?.timeStr != null && e.timeStr.trim() !== ''
+          ? parseLapTime(e.timeStr) ?? a.lapTimeSec
+          : a.lapTimeSec
+        : null;
+      const diff = effTimeSec != null ? effTimeSec - p.plannedTimeSec : null;
+      if (diff != null) cum += diff;
+      return {
+        lapNumber: p.lapNumber,
+        stintNumber: p.stintNumber,
+        selectable: a != null,
+        riderId: a ? (e?.riderId !== undefined ? e.riderId : a.riderId) : null,
+        condition: a?.condition ?? 'D',
+        outIn: a ? (e?.outIn !== undefined ? e.outIn : a.outIn) : null,
+        timeSec: effTimeSec,
+        timeStr: e?.timeStr,
+        edited: e != null,
+        planRiderId: p.riderId,
+        planTimeSec: p.plannedTimeSec,
+        planOutIn: p.outIn,
+        diffSec: diff,
+        cumDiffSec: a != null ? cum : null,
+      };
+    });
+    const planLen = plan.laps.length;
+    const extra: GridRow[] = (actualLaps ?? [])
+      .filter((a) => a.lapNumber > planLen)
+      .map((a) => {
+        const e = actualEdits[a.lapNumber];
+        const effTimeSec = e?.timeStr != null && e.timeStr.trim() !== '' ? parseLapTime(e.timeStr) ?? a.lapTimeSec : a.lapTimeSec;
+        return {
+          lapNumber: a.lapNumber,
+          stintNumber: a.stintNumber,
+          selectable: true,
+          riderId: e?.riderId !== undefined ? e.riderId : a.riderId,
+          condition: a.condition,
+          outIn: e?.outIn !== undefined ? e.outIn : a.outIn,
+          timeSec: effTimeSec,
+          timeStr: e?.timeStr,
+          edited: e != null,
+          isExtra: true,
+        };
+      });
+    return [...rows, ...extra];
+  }, [plan, actualLaps, actualEdits]);
+
+  // 対比サマリー（消化/対計画累積/ピット周）
+  const compareTotals = useMemo(() => {
+    if (!plan) return null;
+    const actualByLap = new Map((actualLaps ?? []).map((a) => [a.lapNumber, a]));
+    let cum = 0;
+    for (const p of plan.laps) {
+      const a = actualByLap.get(p.lapNumber);
+      if (!a) continue;
+      const e = actualEdits[p.lapNumber];
+      const t = e?.timeStr != null && e.timeStr.trim() !== '' ? parseLapTime(e.timeStr) ?? a.lapTimeSec : a.lapTimeSec;
+      cum += t - p.plannedTimeSec;
+    }
+    const outInOf = (a: ActualLapRow) => {
+      const e = actualEdits[a.lapNumber];
+      return e?.outIn !== undefined ? e.outIn : a.outIn;
     };
-  }, [plan, actual]);
+    return {
+      actualLapsCount: actualLaps?.length ?? 0,
+      cumDiffSec: cum,
+      planPitLaps: plan.laps.filter((l) => l.outIn === 'IN').map((l) => l.lapNumber),
+      actualPitLaps: (actualLaps ?? []).filter((a) => outInOf(a) === 'IN').map((a) => a.lapNumber),
+    };
+  }, [plan, actualLaps, actualEdits]);
+
+  // スプリント別サマリー比較（ST_n を計画↔実績で突き合わせ）
+  const stintSummary = useMemo(() => {
+    if (!plan) return [];
+    const planByStint = new Map<number, PlanLap[]>();
+    for (const l of plan.laps) {
+      if (!planByStint.has(l.stintNumber)) planByStint.set(l.stintNumber, []);
+      planByStint.get(l.stintNumber)!.push(l);
+    }
+    const actByStint = new Map<number, ActualLapRow[]>();
+    for (const a of actualLaps ?? []) {
+      if (a.stintNumber == null) continue;
+      if (!actByStint.has(a.stintNumber)) actByStint.set(a.stintNumber, []);
+      actByStint.get(a.stintNumber)!.push(a);
+    }
+    const nums = Array.from(new Set([...planByStint.keys(), ...actByStint.keys()])).sort((a, b) => a - b);
+    return nums.map((n) => {
+      const pl = planByStint.get(n) ?? [];
+      const al = actByStint.get(n) ?? [];
+      const planGreen = pl.filter((l) => !l.outIn && l.condition === 'D');
+      const actGreen = al.filter((l) => !l.outIn && l.condition === 'D');
+      const planAvg = planGreen.length ? planGreen.reduce((s, l) => s + l.plannedTimeSec, 0) / planGreen.length : null;
+      const actAvg = actGreen.length ? actGreen.reduce((s, l) => s + l.lapTimeSec, 0) / actGreen.length : null;
+      const planTotal = pl.reduce((s, l) => s + l.plannedTimeSec, 0);
+      const actTotal = al.length ? al.reduce((s, l) => s + l.lapTimeSec, 0) : null;
+      return {
+        stintNumber: n,
+        planRider: plan.stints.find((s) => s.stintNumber === n)?.riderId ?? pl[0]?.riderId ?? null,
+        actRider: al[0]?.riderId ?? null,
+        planLaps: pl.length,
+        actLaps: al.length,
+        planAvg,
+        actAvg,
+        planTotal: pl.length ? planTotal : null,
+        actTotal,
+      };
+    });
+  }, [plan, actualLaps]);
+
+  const planStintLabel = useCallback(
+    (n: number) => riderName(plan?.stints.find((s) => s.stintNumber === n)?.riderId ?? null),
+    [plan, riderName],
+  );
+  const actualStintLabel = useCallback(
+    (n: number) => {
+      const first = (actualLaps ?? []).find((a) => a.stintNumber === n);
+      return first ? riderName(first.riderId) : undefined;
+    },
+    [actualLaps, riderName],
+  );
 
   if (!plan) return <div className="text-muted-foreground">読み込み中…</div>;
   if (!plan.race) {
@@ -431,28 +788,52 @@ export default function PlanPage() {
 
   const totals = plan.totals;
   const overTime = totals.totalTimeSec - totals.raceDurationSec;
+  const unsaved = view === 'plan' ? planEditCount : actualEditCount;
+
+  // 編集中（draftFuel）＝シミュレーション値、plan.totals＝保存済み（基準）。差分を集計タイルに出す。
+  // draftFuel が null（入力途中/未割当）のときは保存済み値のみを表示（差分なし）。
+  const simTotals = draftFuel?.totals ?? totals;
+  const simOverTime = draftFuel?.overTime ?? overTime;
+  const dLaps = draftFuel ? simTotals.totalLaps - totals.totalLaps : null;
+  const dTime = draftFuel ? simTotals.totalTimeSec - totals.totalTimeSec : null;
+  const dOver = draftFuel ? simOverTime - overTime : null;
+  const simFuelShort = draftFuel?.fuelShortStints ?? totals.fuelShortStints;
+  const baseFuelSeries: FuelPoint[] = plan.laps.map((l) => ({ lap: l.lapNumber, fuelL: l.fuelRemainingL }));
+  const signedMinSec = (s: number) => `${s >= 0 ? '+' : '−'}${formatMinSec(Math.abs(s))}`;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">計画</h1>
+          <h1 className="text-2xl font-bold tracking-tight">計画 / 実績</h1>
           <p className="mt-0.5 text-[10px] tracking-[0.3em] text-muted-foreground uppercase">
             Strategy ・ {plan.race.raceName}
           </p>
         </div>
-        <div className="flex gap-1 rounded-md border p-1">
-          {(['edit', 'compare'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-                tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {t === 'edit' ? '計画編集' : '計画 vs 実績'}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* ビュー切替 */}
+          <div className="flex gap-1 rounded-md border p-1">
+            {(['plan', 'actual', 'compare'] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                  view === v ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {v === 'plan' ? '計画のみ' : v === 'actual' ? '実績のみ' : '計画 vs 実績'}
+              </button>
+            ))}
+          </div>
+          {/* 編集トグル */}
+          <button
+            onClick={() => setEditing((e) => !e)}
+            className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-colors ${
+              editing ? 'bg-amber-500 text-black border-amber-500' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {editing ? '編集モード ●' : '閲覧'}
+          </button>
         </div>
       </div>
 
@@ -461,49 +842,52 @@ export default function PlanPage() {
       )}
       {msg && <div className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-md px-4 py-2 text-sm">{msg}</div>}
 
-      {tab === 'edit' ? (
+      {/* ═══ 計画のみ ═══ */}
+      {view === 'plan' && (
         <>
-          {/* レース中の凍結案内 */}
           {freezeActive && (
             <div className="bg-primary/10 border border-primary/30 rounded-md px-4 py-2 text-sm">
               レース中: Lap {plan.progress!.maxActualLap} まで走行済み。保存しても走行済みの計画周
               {frozenUpTo > 0 ? `（Lap ${frozenUpTo} まで）` : ''}は変更されません。
-              走行済み・走行中スティントはロックされ、これから先だけ組み直せます
             </div>
           )}
 
-          {/* 集計バー */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <SummaryTile label="計画周回" value={`${totals.totalLaps} 周`} />
+            <SummaryTile
+              label="計画周回"
+              value={`${simTotals.totalLaps} 周`}
+              delta={dLaps ? `${dLaps > 0 ? '+' : '−'}${Math.abs(dLaps)} 周` : undefined}
+            />
             <SummaryTile
               label="計画所要時間"
-              value={formatMinSec(totals.totalTimeSec)}
+              value={formatMinSec(simTotals.totalTimeSec)}
               sub={`レース時間 ${formatMinSec(totals.raceDurationSec)}`}
+              delta={dTime ? signedMinSec(dTime) : undefined}
             />
             <SummaryTile
               label="対レース時間"
-              value={`${overTime >= 0 ? '+' : '−'}${formatMinSec(Math.abs(overTime))}`}
-              warn={overTime < -120}
-              sub={overTime >= 0 ? '時間超過ぶんは走り切りでOK' : overTime < -120 ? '2分以上の余りあり: 周回を追加検討' : ''}
+              value={`${simOverTime >= 0 ? '+' : '−'}${formatMinSec(Math.abs(simOverTime))}`}
+              warn={simOverTime < -120}
+              sub={simOverTime >= 0 ? '時間超過ぶんは走り切りでOK' : simOverTime < -120 ? '2分以上の余りあり: 周回を追加検討' : ''}
+              delta={dOver ? signedMinSec(dOver) : undefined}
             />
-            {(() => {
-              const fuelShort = draftFuel?.fuelShortStints ?? totals.fuelShortStints;
-              return (
-                <SummaryTile
-                  label="ピット回数"
-                  value={`${totals.pitCount} 回`}
-                  warn={fuelShort.length > 0}
-                  sub={fuelShort.length > 0 ? `燃料不足: ST${fuelShort.join(', ')}` : ''}
-                />
-              );
-            })()}
+            <SummaryTile
+              label="燃料余裕"
+              value={draftFuel?.minFuelL != null ? `最小 ${draftFuel.minFuelL.toFixed(1)}L` : '-'}
+              warn={simFuelShort.length > 0}
+              sub={
+                simFuelShort.length > 0
+                  ? `不足 ST${simFuelShort.join(',')}・ピット ${simTotals.pitCount}回`
+                  : `ピット ${simTotals.pitCount}回`
+              }
+            />
           </div>
 
-          {/* スティント編集 */}
+          {/* スティント構成 */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <div>
-                <CardTitle className="text-lg">スティント計画</CardTitle>
+                <CardTitle className="text-lg">スティント構成</CardTitle>
                 <CardDescription>誰が・何周・目標ラップ・給油量。保存すると周単位に展開されます</CardDescription>
               </div>
               <div className="flex gap-2">
@@ -511,7 +895,7 @@ export default function PlanPage() {
                   variant="outline"
                   onClick={generatePlan}
                   disabled={busy || freezeActive}
-                  title={freezeActive ? 'レース開始後は自動生成できません（計画編集で残りを調整してください）' : undefined}
+                  title={freezeActive ? 'レース開始後は自動生成できません' : undefined}
                 >
                   自動生成
                 </Button>
@@ -534,7 +918,6 @@ export default function PlanPage() {
                 </label>
               )}
 
-              {/* 給油量の一括適用（ST2 以降の全ピット） */}
               <div className="flex items-end gap-2 flex-wrap border rounded-md p-3 bg-muted/30">
                 <div>
                   <label className="block text-xs text-muted-foreground mb-1">給油量（全ピット共通・追加L）</label>
@@ -549,9 +932,6 @@ export default function PlanPage() {
                 <Button variant="outline" onClick={applyBulkRefuel} disabled={drafts.length < 2}>
                   全ピットに適用
                 </Button>
-                <p className="text-xs text-muted-foreground pb-2">
-                  ピットイン予定のたびに残燃料へ加算されます（タンク容量 {plan.race!.tankCapacityL}L でキャップ）
-                </p>
               </div>
 
               <div className="overflow-x-auto">
@@ -572,102 +952,122 @@ export default function PlanPage() {
                   <tbody>
                     {drafts.map((d, i) => {
                       const stNo = i + 1;
-                      const isFrozen = stNo < boundaryNo; // 消化済み: 全ロック
-                      const isBoundary = stNo === boundaryNo; // 走行中: 周回数・目標のみ編集可
+                      const isFrozen = stNo < boundaryNo;
+                      const isBoundary = stNo === boundaryNo;
                       return (
-                      <tr key={d.key} className={`border-b border-border/50 ${isFrozen || isBoundary ? 'bg-muted/40' : ''}`}>
-                        <td className="py-1.5 px-2 font-mono whitespace-nowrap">
-                          {stNo}
-                          {isFrozen && (
-                            <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground align-middle">走行済</span>
-                          )}
-                          {isBoundary && (
-                            <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-primary/15 text-primary align-middle">走行中</span>
-                          )}
-                        </td>
-                        <td className="py-1.5 px-2">
-                          <select
-                            value={d.riderId}
-                            disabled={isFrozen || isBoundary}
-                            onChange={(e) => updateDraft(d.key, { riderId: e.target.value })}
-                            className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
-                          >
-                            <option value="">（未定）</option>
-                            {plan.riders.map((r) => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-1.5 px-2">
-                          <Input
-                            inputMode="numeric"
-                            value={d.plannedLaps}
-                            disabled={isFrozen}
-                            title={isBoundary && plan.progress?.frozenLapsInBoundary != null ? `${plan.progress.frozenLapsInBoundary}周走行済み（未満には縮められません）` : undefined}
-                            onChange={(e) => updateDraft(d.key, { plannedLaps: e.target.value })}
-                            className="w-20 h-9 font-mono"
-                          />
-                        </td>
-                        <td className="py-1.5 px-2">
-                          <Input
-                            value={d.targetLap}
-                            disabled={isFrozen}
-                            placeholder={`想定 ${formatLapTime(plan.race!.assumedLapSec)}`}
-                            onChange={(e) => updateDraft(d.key, { targetLap: e.target.value })}
-                            className="w-32 h-9 font-mono"
-                          />
-                        </td>
-                        <td className="py-1.5 px-2">
-                          {i === 0 ? (
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              ─（スタート {plan.race!.startFuelL}L）
-                            </span>
-                          ) : (
+                        <tr key={d.key} className={`border-b border-border/50 ${isFrozen || isBoundary ? 'bg-muted/40' : ''}`}>
+                          <td className="py-1.5 px-2 font-mono whitespace-nowrap">
+                            {stNo}
+                            {isFrozen && (
+                              <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground align-middle">走行済</span>
+                            )}
+                            {isBoundary && (
+                              <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-primary/15 text-primary align-middle">走行中</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <select
+                              value={d.riderId}
+                              disabled={isFrozen || isBoundary}
+                              onChange={(e) => updateDraft(d.key, { riderId: e.target.value })}
+                              className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
+                            >
+                              <option value="">（未定）</option>
+                              {plan.riders.map((r) => (
+                                <option key={r.id} value={r.id}>{r.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 w-8 p-0 text-base leading-none"
+                                disabled={isFrozen}
+                                onClick={() => stepLaps(d.key, d.plannedLaps, -1)}
+                                title="1周減らす"
+                              >
+                                −
+                              </Button>
+                              <Input
+                                inputMode="numeric"
+                                value={d.plannedLaps}
+                                disabled={isFrozen}
+                                title={isBoundary && plan.progress?.frozenLapsInBoundary != null ? `${plan.progress.frozenLapsInBoundary}周走行済み` : undefined}
+                                onChange={(e) => updateDraft(d.key, { plannedLaps: e.target.value })}
+                                className="w-14 h-9 font-mono text-center"
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 w-8 p-0 text-base leading-none"
+                                disabled={isFrozen}
+                                onClick={() => stepLaps(d.key, d.plannedLaps, 1)}
+                                title="1周増やす"
+                              >
+                                ＋
+                              </Button>
+                            </div>
+                          </td>
+                          <td className="py-1.5 px-2">
                             <Input
-                              inputMode="decimal"
-                              value={d.refuelL}
-                              disabled={isFrozen || isBoundary}
-                              onChange={(e) => updateDraft(d.key, { refuelL: e.target.value })}
-                              className="w-20 h-9 font-mono"
+                              value={d.targetLap}
+                              disabled={isFrozen}
+                              placeholder={`想定 ${formatLapTime(plan.race!.assumedLapSec)}`}
+                              onChange={(e) => updateDraft(d.key, { targetLap: e.target.value })}
+                              className="w-32 h-9 font-mono"
                             />
-                          )}
-                        </td>
-                        <td className="py-1.5 px-2 text-center">
-                          {i === 0 ? (
-                            <span className="text-xs text-muted-foreground">─</span>
-                          ) : (
-                            <input
-                              type="checkbox"
-                              checked={d.tireChange}
-                              disabled={isFrozen || isBoundary}
-                              onChange={(e) => updateDraft(d.key, { tireChange: e.target.checked })}
-                              className="h-4 w-4 accent-amber-500 disabled:opacity-60"
-                              title="このスティント開始時のピットインでタイヤ交換する"
-                            />
-                          )}
-                        </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-muted-foreground whitespace-nowrap">
-                          {draftFuel?.stintStartFuel[i + 1] != null ? `${draftFuel.stintStartFuel[i + 1].toFixed(2)} L` : '-'}
-                        </td>
-                        <td
-                          className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${
-                            draftFuel != null && (draftFuel.stintEndFuel[i + 1] ?? 0) < 0
-                              ? 'text-destructive font-bold'
-                              : 'text-muted-foreground'
-                          }`}
-                        >
-                          {draftFuel?.stintEndFuel[i + 1] != null ? `${draftFuel.stintEndFuel[i + 1].toFixed(2)} L` : '-'}
-                        </td>
-                        <td className="py-1.5 px-2 whitespace-nowrap">
-                          {!(isFrozen || isBoundary) && (
-                            <>
-                              <Button variant="ghost" size="sm" onClick={() => moveDraft(d.key, -1)} disabled={i <= boundaryNo}>↑</Button>
-                              <Button variant="ghost" size="sm" onClick={() => moveDraft(d.key, 1)} disabled={i === drafts.length - 1}>↓</Button>
-                              <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeDraft(d.key)}>削除</Button>
-                            </>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="py-1.5 px-2">
+                            {i === 0 ? (
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                ─（スタート {plan.race!.startFuelL}L）
+                              </span>
+                            ) : (
+                              <Input
+                                inputMode="decimal"
+                                value={d.refuelL}
+                                disabled={isFrozen || isBoundary}
+                                onChange={(e) => updateDraft(d.key, { refuelL: e.target.value })}
+                                className="w-20 h-9 font-mono"
+                              />
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2 text-center">
+                            {i === 0 ? (
+                              <span className="text-xs text-muted-foreground">─</span>
+                            ) : (
+                              <input
+                                type="checkbox"
+                                checked={d.tireChange}
+                                disabled={isFrozen || isBoundary}
+                                onChange={(e) => updateDraft(d.key, { tireChange: e.target.checked })}
+                                className="h-4 w-4 accent-amber-500 disabled:opacity-60"
+                                title="このスティント開始時のピットインでタイヤ交換する"
+                              />
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono text-muted-foreground whitespace-nowrap">
+                            {draftFuel?.stintStartFuel[i + 1] != null ? `${draftFuel.stintStartFuel[i + 1].toFixed(2)} L` : '-'}
+                          </td>
+                          <td
+                            className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${
+                              draftFuel != null && (draftFuel.stintEndFuel[i + 1] ?? 0) < 0 ? 'text-destructive font-bold' : 'text-muted-foreground'
+                            }`}
+                          >
+                            {draftFuel?.stintEndFuel[i + 1] != null ? `${draftFuel.stintEndFuel[i + 1].toFixed(2)} L` : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 whitespace-nowrap">
+                            {!(isFrozen || isBoundary) && (
+                              <>
+                                <Button variant="ghost" size="sm" onClick={() => moveDraft(d.key, -1)} disabled={i <= boundaryNo}>↑</Button>
+                                <Button variant="ghost" size="sm" onClick={() => moveDraft(d.key, 1)} disabled={i === drafts.length - 1}>↓</Button>
+                                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeDraft(d.key)}>削除</Button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
                       );
                     })}
                     {drafts.length === 0 && (
@@ -685,109 +1085,233 @@ export default function PlanPage() {
             </CardContent>
           </Card>
 
-          {/* 周単位展開テーブル */}
+          {/* ライダー別サマリ */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">周単位の計画（展開結果）</CardTitle>
+              <CardTitle className="text-lg">ライダー別サマリ</CardTitle>
               <CardDescription>
-                行の「編集」で特定周だけタイム・路面を上書きできます（橙 = 上書き済み）
+                周回数を増減すると、各ライダーの担当周回・走行時間がその場で変わります（数字は編集中の値、括弧は保存済みからの差分）
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto max-h-[32rem] overflow-y-auto">
+              {riderSummary.length === 0 ? (
+                <p className="text-sm text-muted-foreground">ライダーが割り当てられたスティントがありません</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-muted-foreground border-b">
+                      <tr>
+                        <th className="text-left py-2 px-2">ライダー</th>
+                        <th className="text-right py-2 px-2">担当周回</th>
+                        <th className="text-right py-2 px-2">走行時間</th>
+                        <th className="text-right py-2 px-2 whitespace-nowrap">スティント</th>
+                        <th className="text-right py-2 px-2 whitespace-nowrap">平均ラップ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {riderSummary.map((r) => (
+                        <tr key={r.rider.id} className="border-b border-border/50">
+                          <td className="py-1.5 px-2">
+                            <span className="inline-flex items-center gap-2">
+                              <span className="inline-block h-3 w-3 rounded-full" style={{ background: r.rider.color ?? '#64748b' }} />
+                              {r.rider.name}
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono">
+                            {r.laps} 周
+                            {r.dLaps !== 0 && (
+                              <span className="ml-1 text-xs text-amber-400">
+                                ({r.dLaps > 0 ? '+' : '−'}
+                                {Math.abs(r.dLaps)})
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono">{formatMinSec(r.driveSec)}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{r.stints}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{r.avgSec != null ? formatLapTime(r.avgSec) : '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 燃料残量シミュレーション（ダッシュボードと同じグラフ） */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">燃料残量（シミュレーション）</CardTitle>
+              <CardDescription>
+                青 = 編集中の計画、灰 = 保存済み計画。ガス欠ライン（0L）を下回ると燃料不足です
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FuelChart
+                fuelSeries={{
+                  plan: draftFuel?.fuelSeries ?? baseFuelSeries,
+                  actual: [],
+                  baseline: baseFuelSeries,
+                  startFuelL: plan.race!.startFuelL,
+                  tankCapacityL: plan.race!.tankCapacityL,
+                }}
+                labels={{ plan: 'シミュレーション', baseline: '保存済み' }}
+              />
+            </CardContent>
+          </Card>
+
+          {/* 周単位 計画グリッド */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="text-lg">周単位の計画</CardTitle>
+                <CardDescription>
+                  {editing
+                    ? 'チェックで複数周を選び、上のバーで走者・路面・タイムを一括変更。橙 = 上書き済み'
+                    : '「編集モード」で複数周をまとめて上書きできます（橙 = 上書き済み）'}
+                </CardDescription>
+              </div>
+              {planEditCount > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-amber-400">未保存 {planEditCount} 周</span>
+                  <Button onClick={savePlanLapEdits} disabled={savingLaps}>保存</Button>
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              <LapCompareGrid
+                mode="plan"
+                tabbed
+                editing={editing}
+                rows={planRows}
+                riders={plan.riders}
+                riderName={riderName}
+                stintLabel={planStintLabel}
+                onCellChange={(lap, patch) => mergePlanEdit([lap], patch)}
+                onBulkChange={mergePlanEdit}
+                onReset={resetPlanLaps}
+                resetLabel="上書き解除"
+                emptyText="計画を保存すると周単位に展開されます"
+              />
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* ═══ 実績のみ ═══ */}
+      {view === 'actual' && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <SummaryTile label="実績周回" value={`${actualLaps?.length ?? 0} 周`} sub={`計画 ${totals.totalLaps} 周`} />
+            <SummaryTile label="対計画" value={`${(actualLaps?.length ?? 0) - totals.totalLaps >= 0 ? '+' : ''}${(actualLaps?.length ?? 0) - totals.totalLaps} 周`} />
+          </div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="text-lg">周単位の実績</CardTitle>
+                <CardDescription>
+                  {editing ? 'チェックで複数周を選び、走者・路面・区分・タイムを一括修正' : '「編集モード」で実績を修正できます'}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {actualEditCount > 0 && <span className="text-xs text-amber-400">未保存 {actualEditCount} 周</span>}
+                {actualEditCount > 0 && <Button onClick={saveActualLapEdits} disabled={savingLaps}>保存</Button>}
+                <Button variant="ghost" className="text-xs h-8" onClick={loadActualLaps} disabled={savingLaps}>再取得</Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <LapCompareGrid
+                mode="actual"
+                editing={editing}
+                rows={actualRows}
+                riders={plan.riders}
+                riderName={riderName}
+                stintLabel={actualStintLabel}
+                onCellChange={(lap, patch) => mergeActualEdit([lap], patch)}
+                onBulkChange={mergeActualEdit}
+                onReset={resetActualLaps}
+                resetLabel="編集を取消"
+                onDeleteRow={deleteActualLap}
+                emptyText={actualLaps == null ? '実績を読み込み中…' : 'まだ実績がありません'}
+              />
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* ═══ 計画 vs 実績 ═══ */}
+      {view === 'compare' && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <SummaryTile label="消化" value={`${compareTotals?.actualLapsCount ?? 0} / ${totals.totalLaps} 周`} sub="実績 / 計画" />
+            <SummaryTile
+              label="対計画 累積"
+              value={
+                compareTotals && compareTotals.actualLapsCount > 0
+                  ? `${compareTotals.cumDiffSec <= 0 ? '+' : '−'}${formatMinSec(Math.abs(compareTotals.cumDiffSec))}`
+                  : '-'
+              }
+              sub="＋=計画より速い"
+              good={compareTotals ? compareTotals.cumDiffSec <= 0 : undefined}
+            />
+            <SummaryTile label="計画ピット周" value={compareTotals?.planPitLaps.length ? compareTotals.planPitLaps.join(', ') : '-'} sub="Lap（IN 周）" />
+            <SummaryTile label="実績ピット周" value={compareTotals?.actualPitLaps.length ? compareTotals.actualPitLaps.join(', ') : '-'} sub="Lap（IN 周）" />
+          </div>
+
+          {/* スプリント別サマリー比較 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">スプリント別サマリー</CardTitle>
+              <CardDescription>各スティントを計画↔実績で対比（平均はグリーン周＝OUT/IN・ウェット等を除く）</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
-                  <thead className="text-muted-foreground border-b sticky top-0 bg-card">
+                  <thead className="text-muted-foreground border-b">
                     <tr>
-                      <th className="text-left py-2 px-2">Lap</th>
                       <th className="text-left py-2 px-2">ST</th>
-                      <th className="text-left py-2 px-2">走者</th>
-                      <th className="text-left py-2 px-2">区分</th>
-                      <th className="text-left py-2 px-2">路面</th>
-                      <th className="text-right py-2 px-2">計画タイム</th>
-                      <th className="text-right py-2 px-2">残L</th>
-                      <th className="text-right py-2 px-2">累積</th>
-                      <th className="py-2 px-2"></th>
+                      <th className="text-left py-2 px-2">走者(計/実)</th>
+                      <th className="text-right py-2 px-2">周(計/実)</th>
+                      <th className="text-right py-2 px-2">平均(計/実)</th>
+                      <th className="text-right py-2 px-2">合計(計/実)</th>
+                      <th className="text-right py-2 px-2">合計差</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {plan.laps.map((l) => {
-                      const isFrozenLap = l.lapNumber <= frozenUpTo;
+                    {stintSummary.map((s) => {
+                      const totalDiff = s.planTotal != null && s.actTotal != null ? s.actTotal - s.planTotal : null;
                       return (
-                      <tr
-                        key={l.lapNumber}
-                        className={`border-b border-border/50 ${l.isOverride ? 'bg-amber-500/10' : isFrozenLap ? 'bg-muted/40' : ''}`}
-                      >
-                        <td className="py-1 px-2 font-mono">{l.lapNumber}</td>
-                        <td className="py-1 px-2 font-mono">{l.stintNumber}</td>
-                        <td className="py-1 px-2">{riderName(l.riderId)}</td>
-                        <td className="py-1 px-2 text-xs whitespace-nowrap">
-                          {l.outIn ?? ''}
-                          {l.outIn === 'OUT' && tireByStint.get(l.stintNumber) && (
-                            <span className="ml-1 text-amber-400" title="このピットでタイヤ交換">🛞</span>
-                          )}
-                        </td>
-                        <td className="py-1 px-2">
-                          {editingLap === l.lapNumber ? (
-                            <select
-                              value={editCondition}
-                              onChange={(e) => setEditCondition(e.target.value)}
-                              className="h-8 rounded-md border border-input bg-background px-1 text-xs"
-                            >
-                              {['D', 'W', 'SC'].map((c) => (
-                                <option key={c} value={c}>{CONDITION_LABEL[c]}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span
-                              className="inline-block px-2 py-0.5 rounded-full text-xs text-white whitespace-nowrap"
-                              style={{ backgroundColor: CONDITION_COLOR[l.condition] ?? '#6b7280' }}
-                            >
-                              {CONDITION_LABEL[l.condition] ?? l.condition}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono">
-                          {editingLap === l.lapNumber ? (
-                            <Input
-                              value={editTime}
-                              onChange={(e) => setEditTime(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && submitLapOverride()}
-                              className="w-28 h-8 font-mono text-right inline-block"
-                              autoFocus
-                            />
-                          ) : (
-                            formatLapTime(l.plannedTimeSec)
-                          )}
-                        </td>
-                        <td className={`py-1 px-2 text-right font-mono ${l.fuelRemainingL < 0 ? 'text-destructive font-bold' : ''}`}>
-                          {l.fuelRemainingL.toFixed(2)}
-                        </td>
-                        <td className="py-1 px-2 text-right font-mono text-xs text-muted-foreground">{formatMinSec(l.cumTimeSec)}</td>
-                        <td className="py-1 px-2 whitespace-nowrap text-right">
-                          {isFrozenLap ? (
-                            <span className="text-[10px] text-muted-foreground">走行済</span>
-                          ) : editingLap === l.lapNumber ? (
-                            <>
-                              <Button variant="ghost" size="sm" onClick={submitLapOverride} disabled={busy}>確定</Button>
-                              <Button variant="ghost" size="sm" onClick={() => setEditingLap(null)}>取消</Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button variant="ghost" size="sm" onClick={() => startEditLap(l)}>編集</Button>
-                              {l.isOverride && (
-                                <Button variant="ghost" size="sm" className="text-amber-400" onClick={() => clearLapOverride(l.lapNumber)}>
-                                  解除
-                                </Button>
-                              )}
-                            </>
-                          )}
-                        </td>
-                      </tr>
+                        <tr key={s.stintNumber} className="border-b border-border/40">
+                          <td className="py-1.5 px-2 font-mono">ST{s.stintNumber}</td>
+                          <td className="py-1.5 px-2 text-xs">
+                            {riderName(s.planRider)}
+                            <span className="text-muted-foreground"> / </span>
+                            {s.actRider ? riderName(s.actRider) : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono">
+                            {s.planLaps}
+                            <span className="text-muted-foreground"> / </span>
+                            {s.actLaps || '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono text-xs">
+                            {s.planAvg != null ? formatLapTime(s.planAvg) : '-'}
+                            <span className="text-muted-foreground"> / </span>
+                            {s.actAvg != null ? formatLapTime(s.actAvg) : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono text-xs">
+                            {s.planTotal != null ? formatMinSec(s.planTotal) : '-'}
+                            <span className="text-muted-foreground"> / </span>
+                            {s.actTotal != null ? formatMinSec(s.actTotal) : '-'}
+                          </td>
+                          <td className={`py-1.5 px-2 text-right font-mono ${diffClass(totalDiff)}`}>
+                            {totalDiff != null ? `${totalDiff <= 0 ? '−' : '+'}${formatMinSec(Math.abs(totalDiff))}` : '-'}
+                          </td>
+                        </tr>
                       );
                     })}
-                    {plan.laps.length === 0 && (
+                    {stintSummary.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="text-center py-6 text-muted-foreground">計画を保存すると周単位に展開されます</td>
+                        <td colSpan={6} className="text-center py-6 text-muted-foreground">計画がありません</td>
                       </tr>
                     )}
                   </tbody>
@@ -795,130 +1319,76 @@ export default function PlanPage() {
               </div>
             </CardContent>
           </Card>
-        </>
-      ) : (
-        <>
-          {/* 比較サマリー */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <SummaryTile
-              label="消化"
-              value={`${comparison?.actualLaps ?? 0} / ${totals.totalLaps} 周`}
-              sub="実績 / 計画"
-            />
-            <SummaryTile
-              label="対計画 累積"
-              value={
-                comparison && comparison.actualLaps > 0
-                  ? `${comparison.cumDiffSec <= 0 ? '+' : '−'}${formatMinSec(Math.abs(comparison.cumDiffSec))}`
-                  : '-'
-              }
-              sub="＋=計画より速い"
-              good={comparison ? comparison.cumDiffSec <= 0 : undefined}
-            />
-            <SummaryTile
-              label="計画ピット周"
-              value={comparison?.planPitLaps.length ? comparison.planPitLaps.join(', ') : '-'}
-              sub="Lap（IN 周）"
-            />
-            <SummaryTile
-              label="実績ピット周"
-              value={comparison?.actualPitLaps.length ? comparison.actualPitLaps.join(', ') : '-'}
-              sub="Lap（IN 周）"
-            />
-          </div>
 
+          {/* 周単位 対比グリッド（実績列を編集） */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">周単位の計画 vs 実績</CardTitle>
-              <CardDescription>差 = 実績 − 計画（負 = 計画より速い）。10 秒ごとに実績を自動更新</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="text-lg">周単位の計画 vs 実績</CardTitle>
+                <CardDescription>差 = 実績 − 計画（負 = 計画より速い）。実績列を編集できます</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {actualEditCount > 0 && <span className="text-xs text-amber-400">未保存 {actualEditCount} 周</span>}
+                {actualEditCount > 0 && <Button onClick={saveActualLapEdits} disabled={savingLaps}>保存</Button>}
+              </div>
             </CardHeader>
             <CardContent>
-              {!comparison ? (
-                <div className="py-6 text-center text-muted-foreground text-sm">実績データを読み込み中…</div>
-              ) : (
-                <div className="overflow-x-auto max-h-[36rem] overflow-y-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="text-muted-foreground border-b sticky top-0 bg-card">
-                      <tr>
-                        <th className="text-left py-2 px-2">Lap</th>
-                        <th className="text-left py-2 px-2">計画走者</th>
-                        <th className="text-left py-2 px-2">実績走者</th>
-                        <th className="text-left py-2 px-2">区分</th>
-                        <th className="text-right py-2 px-2">計画</th>
-                        <th className="text-right py-2 px-2">実績</th>
-                        <th className="text-right py-2 px-2">差</th>
-                        <th className="text-right py-2 px-2">累積差</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {comparison.rows.map(({ plan: p, actual: a, diff, cumDiff }) => (
-                        <tr
-                          key={p.lapNumber}
-                          className={`border-b border-border/50 ${p.outIn ? 'bg-muted/40' : ''} ${a ? '' : 'text-muted-foreground'}`}
-                        >
-                          <td className="py-1 px-2 font-mono">{p.lapNumber}</td>
-                          <td className="py-1 px-2">{riderName(p.riderId)}</td>
-                          <td className="py-1 px-2">{a ? riderName(a.riderId) : '-'}</td>
-                          <td className="py-1 px-2 text-xs">
-                            {p.outIn ?? ''}
-                            {a?.outIn && a.outIn !== p.outIn ? (
-                              <span className="text-amber-400 ml-1">実績:{a.outIn}</span>
-                            ) : null}
-                          </td>
-                          <td className="py-1 px-2 text-right font-mono">{formatLapTime(p.plannedTimeSec)}</td>
-                          <td className="py-1 px-2 text-right font-mono">{a ? formatLapTime(a.timeSec) : '-'}</td>
-                          <td className={`py-1 px-2 text-right font-mono ${diffClass(diff)}`}>
-                            {diff != null ? `${diff <= 0 ? '−' : '+'}${Math.abs(diff).toFixed(3)}` : '-'}
-                          </td>
-                          <td className={`py-1 px-2 text-right font-mono ${diffClass(cumDiff)}`}>
-                            {cumDiff != null ? `${cumDiff <= 0 ? '−' : '+'}${formatMinSec(Math.abs(cumDiff))}` : '-'}
-                          </td>
-                        </tr>
-                      ))}
-                      {comparison.extra.map((a) => (
-                        <tr key={`extra-${a.lap}`} className="border-b border-border/50 bg-emerald-500/10">
-                          <td className="py-1 px-2 font-mono">{a.lap}</td>
-                          <td className="py-1 px-2 text-muted-foreground">計画超過</td>
-                          <td className="py-1 px-2">{riderName(a.riderId)}</td>
-                          <td className="py-1 px-2 text-xs">{a.outIn ?? ''}</td>
-                          <td className="py-1 px-2 text-right font-mono">-</td>
-                          <td className="py-1 px-2 text-right font-mono">{formatLapTime(a.timeSec)}</td>
-                          <td className="py-1 px-2 text-right">-</td>
-                          <td className="py-1 px-2 text-right">-</td>
-                        </tr>
-                      ))}
-                      {comparison.rows.length === 0 && (
-                        <tr>
-                          <td colSpan={8} className="text-center py-6 text-muted-foreground">
-                            計画がありません。「計画編集」タブで作成してください
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <LapCompareGrid
+                mode="compare"
+                editing={editing}
+                rows={compareRows}
+                riders={plan.riders}
+                riderName={riderName}
+                stintLabel={planStintLabel}
+                onCellChange={(lap, patch) => mergeActualEdit([lap], patch)}
+                onBulkChange={mergeActualEdit}
+                onReset={resetActualLaps}
+                resetLabel="編集を取消"
+                emptyText={actualLaps == null ? '実績を読み込み中…' : '計画がありません'}
+              />
             </CardContent>
           </Card>
         </>
+      )}
+
+      {unsaved > 0 && editing && (
+        <div className="text-xs text-amber-400">
+          未保存の編集が {unsaved} 周あります。各表の「保存」で確定してください。
+        </div>
       )}
     </div>
   );
 }
 
-// 差分の色分け: 負（計画より速い）= 緑、正 = 赤
 function diffClass(diff: number | null): string {
   if (diff == null) return '';
   return diff <= 0 ? 'text-emerald-400' : 'text-destructive';
 }
 
-function SummaryTile({ label, value, sub, warn, good }: { label: string; value: string; sub?: string; warn?: boolean; good?: boolean }) {
+function SummaryTile({
+  label,
+  value,
+  sub,
+  warn,
+  good,
+  delta,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  warn?: boolean;
+  good?: boolean;
+  delta?: string; // 保存済みからの差分（編集中のみ表示、琥珀色）
+}) {
   return (
     <Card className={warn ? 'border-destructive/50' : ''}>
       <CardContent className="p-4">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className={`font-display text-2xl font-bold ${warn ? 'text-destructive' : good === true ? 'text-emerald-400' : good === false ? 'text-destructive' : ''}`}>
-          {value}
+        <div className="flex items-baseline gap-2">
+          <div className={`font-display text-2xl font-bold ${warn ? 'text-destructive' : good === true ? 'text-emerald-400' : good === false ? 'text-destructive' : ''}`}>
+            {value}
+          </div>
+          {delta ? <div className="text-sm font-semibold text-amber-400">{delta}</div> : null}
         </div>
         {sub ? <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div> : null}
       </CardContent>

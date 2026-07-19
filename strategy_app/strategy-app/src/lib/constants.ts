@@ -1,5 +1,8 @@
 // 路面コンディションと OUT/IN の定数・表示ラベル
 
+// ライダー交代規定: 1人あたりの最大連続走行時間（分）。これを超える前に交代が必要。
+export const RIDER_MAX_STINT_MIN = 60;
+
 export const CONDITIONS = ['D', 'W', 'SC'] as const;
 export type Condition = (typeof CONDITIONS)[number] | 'EX1' | 'EX2';
 
@@ -33,3 +36,17 @@ export const CHART_COLORS = {
 
 export const OUT_IN = ['OUT', 'IN'] as const;
 export type OutIn = (typeof OUT_IN)[number];
+
+// 競合分析（複数車比較）の車ごとカテゴリ色。
+// dataviz の検証済みダーク 8 色（validate_palette.js をアプリのダーク面 #0b0e14 で全チェック PASS）。
+// 「車＝エンティティ」に固定順で割り当て、順位で塗り替えないこと（色の同一性を保つ）。
+export const CAR_PALETTE = [
+  '#3987e5', // 青
+  '#008300', // 緑
+  '#d55181', // マゼンタ
+  '#c98500', // 黄
+  '#199e70', // アクア
+  '#d95926', // オレンジ
+  '#9085e9', // バイオレット
+  '#e66767', // 赤
+] as const;

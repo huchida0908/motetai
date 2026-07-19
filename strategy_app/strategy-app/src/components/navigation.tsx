@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
+  BarChart3,
   CalendarClock,
   ClipboardList,
+  DownloadCloud,
   LayoutDashboard,
   Settings,
   Timer
@@ -23,6 +25,18 @@ const navigationItems = [
     en: 'LIVE TIMING',
     href: '/live',
     icon: Timer,
+  },
+  {
+    title: '取込',
+    en: 'IMPORT',
+    href: '/scrape',
+    icon: DownloadCloud,
+  },
+  {
+    title: '分析',
+    en: 'ANALYSIS',
+    href: '/analysis',
+    icon: BarChart3,
   },
   {
     title: '計画',
@@ -46,6 +60,9 @@ const navigationItems = [
 
 export function Navigation() {
   const pathname = usePathname();
+
+  // 共有ページ（/share）では編集用ナビを出さない（チームメイト向けの閲覧専用画面）
+  if (pathname?.startsWith('/share')) return null;
 
   return (
     <nav className="bg-[#05070b] border-b border-border md:border-b-0 md:border-r md:w-60 md:min-h-screen shrink-0">

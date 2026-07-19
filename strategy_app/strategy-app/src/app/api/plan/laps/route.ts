@@ -2,17 +2,44 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getActiveRace } from '@/lib/live';
 import { getPlanState, overridePlanLap } from '@/lib/plan';
 
+interface OverrideInput {
+  lapNumber: number;
+  plannedTimeSec?: number;
+  condition?: string;
+  riderId?: string | null;
+  clear?: boolean;
+}
+
 // 周単位の計画を手動上書き（または解除）する。
-// body: { lapNumber: number, plannedTimeSec?: number, condition?: string, clear?: boolean }
+// 単一:   { lapNumber, plannedTimeSec?, condition?, riderId?, clear? }
+// バッチ: { overrides: [{ lapNumber, plannedTimeSec?, condition?, riderId?, clear? }, ...] }
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const lapNumber = Number(body.lapNumber);
-    if (!Number.isInteger(lapNumber) || lapNumber < 1) {
-      return NextResponse.json({ error: 'lapNumber が不正です' }, { status: 400 });
+    const rawList: unknown[] = Array.isArray(body.overrides) ? body.overrides : [body];
+    if (rawList.length === 0) {
+      return NextResponse.json({ error: '上書き対象がありません' }, { status: 400 });
     }
-    if (body.plannedTimeSec != null && (!Number.isFinite(Number(body.plannedTimeSec)) || Number(body.plannedTimeSec) <= 0)) {
-      return NextResponse.json({ error: '計画タイム（秒）が不正です' }, { status: 400 });
+
+    // 入力を検証しつつ正規化
+    const overrides: OverrideInput[] = [];
+    for (const raw of rawList) {
+      const o = raw as Record<string, unknown>;
+      const lapNumber = Number(o.lapNumber);
+      if (!Number.isInteger(lapNumber) || lapNumber < 1) {
+        return NextResponse.json({ error: 'lapNumber が不正です' }, { status: 400 });
+      }
+      if (o.plannedTimeSec != null && (!Number.isFinite(Number(o.plannedTimeSec)) || Number(o.plannedTimeSec) <= 0)) {
+        return NextResponse.json({ error: `Lap ${lapNumber}: 計画タイム（秒）が不正です` }, { status: 400 });
+      }
+      overrides.push({
+        lapNumber,
+        plannedTimeSec: o.plannedTimeSec != null ? Number(o.plannedTimeSec) : undefined,
+        condition: typeof o.condition === 'string' ? o.condition : undefined,
+        // riderId は「キーが存在するときだけ」上書き対象（'' → null で未定へ）
+        riderId: 'riderId' in o ? ((o.riderId as string) || null) : undefined,
+        clear: o.clear === true,
+      });
     }
 
     const race = await getActiveRace();
@@ -20,11 +47,16 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'アクティブなレースがありません' }, { status: 400 });
     }
 
-    await overridePlanLap(race.id, lapNumber, {
-      plannedTimeSec: body.plannedTimeSec != null ? Number(body.plannedTimeSec) : undefined,
-      condition: body.condition ?? undefined,
-      clear: body.clear === true,
-    });
+    // 各周を順に適用（overridePlanLap は 1 周ずつ findUnique+update）。
+    // 件数は多くないため直列で十分。1 件でも失敗すれば 500 を返し、クライアントが再取得する。
+    for (const o of overrides) {
+      await overridePlanLap(race.id, o.lapNumber, {
+        plannedTimeSec: o.plannedTimeSec,
+        condition: o.condition,
+        riderId: o.riderId,
+        clear: o.clear,
+      });
+    }
 
     const state = await getPlanState();
     return NextResponse.json(state);

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PanelLabel } from '@/components/panel-label';
 import { Flag } from 'lucide-react';
 import { raceClock } from '@/lib/race-calc';
-import { formatMinSec } from '@/lib/time';
+import { formatHourMin, formatMinSec } from '@/lib/time';
 
 interface Props {
   startedAt: string | null;
@@ -26,33 +26,32 @@ function useClockText(startedAt: string | null, raceDurationMin: number) {
     return () => clearInterval(id);
   }, []);
 
-  if (now == null) return { value: '-', sub: '' };
-  if (!startedAt) return { value: '未計測', sub: 'レース開始で計測開始' };
+  if (now == null) return { value: '-', sub: '', urgent: false };
+  if (!startedAt) return { value: '未計測', sub: 'レース開始で計測開始', urgent: false };
 
   const startMs = new Date(startedAt).getTime();
   if (now < startMs) {
-    return { value: formatMinSec((startMs - now) / 1000), sub: '開始までカウントダウン' };
+    // 開始までのカウントダウンは短時間なので秒精度（M:SS）のまま
+    return { value: formatMinSec((startMs - now) / 1000), sub: '開始までカウントダウン', urgent: false };
   }
   const clock = raceClock(startedAt, raceDurationMin, now);
-  if (!clock) return { value: '未計測', sub: '' };
+  if (!clock) return { value: '未計測', sub: '', urgent: false };
   if (clock.remainingSec <= 0) {
-    return { value: '0:00', sub: 'レース終了' };
+    return { value: '0:00', sub: 'レース終了', urgent: false };
   }
-  return { value: formatMinSec(clock.remainingSec), sub: `経過 ${formatMinSec(clock.elapsedSec)}` };
+  // 残り時間・経過は 時間と分（H時間M分）で表示。残り10分を切ったら警告扱い
+  return {
+    value: formatHourMin(clock.remainingSec),
+    sub: `経過 ${formatHourMin(clock.elapsedSec)}`,
+    urgent: clock.remainingSec <= 600,
+  };
 }
 
 export default function RaceClockTile({ startedAt, raceDurationMin, variant = 'stat' }: Props) {
-  const { value, sub } = useClockText(startedAt, raceDurationMin);
+  const { value, sub, urgent } = useClockText(startedAt, raceDurationMin);
 
   // 残り10分を切ったら赤発光で警告（終了・未計測時は通常色）
-  const isUrgent = (() => {
-    if (!startedAt) return false;
-    const m = /^(\d+):(\d{2})$/.exec(value);
-    if (!m) return false;
-    const sec = Number(m[1]) * 60 + Number(m[2]);
-    return sec > 0 && sec <= 600 && sub.startsWith('経過');
-  })();
-  const valueClass = isUrgent ? 'text-primary text-glow-red' : '';
+  const valueClass = urgent ? 'text-primary text-glow-red' : '';
 
   if (variant === 'hero') {
     return (

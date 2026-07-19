@@ -151,13 +151,20 @@ export async function savePlanStints(
     // 実績 0 周 or 計画なし → 従来の全置換へフォールバック
   }
 
-  // 既存の上書きを退避
+  // 既存の上書きを退避（走者はスティントの担当と異なる周だけ retain し、
+  // 「タイムだけ上書きした周」の走者を誤って固定しないようにする）
   const overrides: PlanLapOverride[] = keepOverrides
     ? (
         await prisma.planLap.findMany({
           where: { raceConfigId, isOverride: true },
+          include: { planStint: true },
         })
-      ).map((l) => ({ lapNumber: l.lapNumber, plannedTimeSec: l.plannedTimeSec, condition: l.condition }))
+      ).map((l) => ({
+        lapNumber: l.lapNumber,
+        plannedTimeSec: l.plannedTimeSec,
+        condition: l.condition,
+        riderId: l.riderId !== l.planStint.riderId ? l.riderId : undefined,
+      }))
     : [];
 
   const expanded = applyOverrides(expandPlan(normalized, race), overrides);
@@ -261,10 +268,17 @@ async function savePlanStintsFrozen(
   });
 
   // 凍結周の上書きは行ごと残るので対象外。tail 側の上書きのみ再適用
+  // 走者はスティントの担当と異なる周だけ retain（タイムだけの上書き周を誤固定しない）
+  const stintRiderById = new Map(existingStints.map((s) => [s.id, s.riderId]));
   const overrides: PlanLapOverride[] = keepOverrides
     ? existingLaps
         .filter((l) => l.isOverride && l.lapNumber > frozenUpTo)
-        .map((l) => ({ lapNumber: l.lapNumber, plannedTimeSec: l.plannedTimeSec, condition: l.condition }))
+        .map((l) => ({
+          lapNumber: l.lapNumber,
+          plannedTimeSec: l.plannedTimeSec,
+          condition: l.condition,
+          riderId: l.riderId !== stintRiderById.get(l.planStintId) ? l.riderId : undefined,
+        }))
     : [];
   const tailWithOv = applyOverrides(tail, overrides);
 
@@ -321,7 +335,7 @@ async function savePlanStintsFrozen(
 export async function overridePlanLap(
   raceConfigId: string,
   lapNumber: number,
-  patch: { plannedTimeSec?: number; condition?: string; clear?: boolean },
+  patch: { plannedTimeSec?: number; condition?: string; riderId?: string | null; clear?: boolean },
 ) {
   const lap = await prisma.planLap.findUnique({
     where: { raceConfigId_lapNumber: { raceConfigId, lapNumber } },
@@ -330,7 +344,7 @@ export async function overridePlanLap(
   if (!lap) throw new Error(`計画ラップ Lap ${lapNumber} が見つかりません`);
 
   if (patch.clear) {
-    // 上書き解除 → スティント目標と想定値から基準タイムを再計算
+    // 上書き解除 → スティント目標と想定値から基準タイムを再計算。走者もスティントの担当へ戻す
     const base = basePlannedTime(
       (lap.outIn as 'OUT' | 'IN' | null) ?? null,
       'D',
@@ -339,7 +353,7 @@ export async function overridePlanLap(
     );
     return prisma.planLap.update({
       where: { id: lap.id },
-      data: { plannedTimeSec: base, condition: 'D', isOverride: false },
+      data: { plannedTimeSec: base, condition: 'D', riderId: lap.planStint.riderId, isOverride: false },
     });
   }
 
@@ -350,9 +364,11 @@ export async function overridePlanLap(
     (patch.condition
       ? basePlannedTime((lap.outIn as 'OUT' | 'IN' | null) ?? null, nextCondition, lap.planStint.targetLapSec, lap.raceConfig)
       : lap.plannedTimeSec);
+  // 走者は指定があれば差し替え（null=未定へ）。未指定なら据え置き
+  const nextRider = patch.riderId !== undefined ? patch.riderId : lap.riderId;
 
   return prisma.planLap.update({
     where: { id: lap.id },
-    data: { plannedTimeSec: nextTime, condition: nextCondition, isOverride: true },
+    data: { plannedTimeSec: nextTime, condition: nextCondition, riderId: nextRider, isOverride: true },
   });
 }

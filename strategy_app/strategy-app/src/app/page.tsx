@@ -6,6 +6,8 @@ import { formatLapTime, formatMinSec } from '@/lib/time';
 import { CONDITION_LABEL, CONDITION_COLOR } from '@/lib/constants';
 import LapChart from '@/components/LapChart';
 import RaceClockTile from '@/components/RaceClockTile';
+import RiderStintTimer from '@/components/RiderStintTimer';
+import StandingTile from '@/components/StandingTile';
 import { PanelLabel } from '@/components/panel-label';
 
 function bankLabel(bankSec: number | null): { text: string; className: string } {
@@ -85,7 +87,10 @@ export default async function Dashboard() {
             <div className="font-display text-3xl md:text-4xl font-bold leading-tight truncate">
               {riderName(currentStint?.riderId ?? null)}
             </div>
-            <div className="text-xs text-muted-foreground font-mono">
+            <div className="text-xs font-mono">
+              <RiderStintTimer startedAt={currentStint?.startedAt ?? live.race.startedAt} variant="inline" />
+            </div>
+            <div className="text-[11px] text-muted-foreground font-mono">
               {t.recent3Avg != null ? `直近3周平均 ${formatLapTime(t.recent3Avg)}` : 'ラップ未計測'}
             </div>
           </div>
@@ -98,6 +103,9 @@ export default async function Dashboard() {
           </div>
         </div>
       </Card>
+
+      {/* 自チームの総合順位（計時サーバーからライブ取得） */}
+      <StandingTile />
 
       {/* メイン: チャート（大）＋ 右レール（燃料・ピット） */}
       <div className="grid gap-4 lg:grid-cols-3">

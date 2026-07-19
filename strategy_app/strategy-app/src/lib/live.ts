@@ -8,6 +8,7 @@ import {
   normalRateForCondition,
   raceClock,
   projectRace,
+  projectRaceByPlan,
   scheduleBank,
   type FuelRates,
   type LapLike,
@@ -124,6 +125,35 @@ export async function getLiveState(nowMs: number) {
     nextPitTireChange = nextStint?.tireChange ?? null;
   }
 
+  // ── Pit Window（次ピットまで/残ピット/着地予測）───────────────────────
+  // 周単位計画がある場合は、汎用の燃料/maxStintLap モデルではなく計画から算出する。
+  // （maxStintLap は「燃料と無関係の安全上限」で、可変スティントの計画とは別概念のため
+  //  計画がある局面ではこちらを正とする。計画が無い場合のみ従来の projectRace を使う。）
+  const hasPlanLaps = planLaps.length > 0;
+  // 次ピットまで = 次の計画 IN 周 − 通算周回（IN が無い＝以降ピット無しなら null）
+  const planLapsUntilNextPit = nextPlannedPit ? Math.max(0, nextPlannedPit.lapNumber - laps.length) : null;
+  // 残ピット回数 = 通算周回より先にある計画 IN 周の数
+  const plannedRemainingPits = hasPlanLaps
+    ? planLaps.filter((p) => p.outIn === 'IN' && p.lapNumber > laps.length).length
+    : null;
+  // 着地予測 / 次ピットまでの所要時間 = 計画のスティント割りを残り時間ぶん前方シミュレート
+  const planProjection =
+    hasPlanLaps && clock
+      ? projectRaceByPlan({
+          remainingSec: clock.remainingSec,
+          totalLaps: laps.length,
+          planLaps: planLaps.map((p) => ({
+            lapNumber: p.lapNumber,
+            planStintId: p.planStintId,
+            outIn: p.outIn ?? null,
+            condition: p.condition,
+            plannedTimeSec: p.plannedTimeSec,
+          })),
+          greenPaceSec: recent3,
+          pitLossSec: race.pitLossSec,
+        })
+      : null;
+
   // チャート用の系列（計画 vs 実績）
   const series = laps.map((l) => ({
     lap: l.lapNumber,
@@ -233,10 +263,13 @@ export async function getLiveState(nowMs: number) {
       avgDry: averageByCondition(allLapLikes, 'D'),
       avgWet: averageByCondition(allLapLikes, 'W'),
       clock,
-      lapsUntilNextPit,
-      projectedTotalLaps: projection?.projectedTotalLaps ?? null,
-      remainingPits: projection?.remainingPits ?? null,
-      nextPitInSec: projection?.nextPitInSec ?? null,
+      // 計画がある場合は計画準拠、無い場合は従来の燃料/maxStintLap モデル
+      lapsUntilNextPit: hasPlanLaps ? planLapsUntilNextPit ?? 0 : lapsUntilNextPit,
+      projectedTotalLaps: hasPlanLaps
+        ? planProjection?.projectedTotalLaps ?? null
+        : projection?.projectedTotalLaps ?? null,
+      remainingPits: hasPlanLaps ? plannedRemainingPits : projection?.remainingPits ?? null,
+      nextPitInSec: hasPlanLaps ? planProjection?.nextPitInSec ?? null : projection?.nextPitInSec ?? null,
       bankSec,
       assumedLapSec: race.assumedLapSec,
       planBankSec,

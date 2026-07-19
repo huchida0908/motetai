@@ -8,6 +8,7 @@ import { formatLapTime, formatMinSec, partsToSeconds, secondsToParts } from '@/l
 import { CONDITION_LABEL, CONDITION_COLOR, CONDITIONS } from '@/lib/constants';
 import RaceClockTile from '@/components/RaceClockTile';
 import { PanelLabel } from '@/components/panel-label';
+import { ImportPanel } from '@/components/ImportPanel';
 
 interface Rider {
   id: string;
@@ -59,6 +60,7 @@ export default function LivePage() {
   const [live, setLive] = useState<LiveResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showImport, setShowImport] = useState(false); // 計時からの取込パネルの開閉
 
   // 入力フォーム（タイムは 分 : 秒 . ミリ秒 の 3 枠。小数点を打たずに入力できる）
   const [minVal, setMinVal] = useState('2');
@@ -287,16 +289,28 @@ export default function LivePage() {
             Live Timing ・ {live.race.raceName}
           </p>
         </div>
-        {(!live.race.startedAt || new Date(live.race.startedAt).getTime() > Date.now()) && (
-          <Button onClick={startRace} disabled={busy} variant="secondary">
-            {live.race.startedAt ? '今すぐ開始（設定時刻を上書き）' : 'レース開始（時計スタート）'}
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setShowImport((v) => !v)} variant={showImport ? 'default' : 'outline'}>
+            {showImport ? '取込を閉じる' : '計時から取込'}
           </Button>
-        )}
+          {(!live.race.startedAt || new Date(live.race.startedAt).getTime() > Date.now()) && (
+            <Button onClick={startRace} disabled={busy} variant="secondary">
+              {live.race.startedAt ? '今すぐ開始（設定時刻を上書き）' : 'レース開始（時計スタート）'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {error && (
         <div className="bg-destructive/10 text-destructive border border-destructive/30 rounded-md px-4 py-2 text-sm">
           {error}
+        </div>
+      )}
+
+      {showImport && (
+        <div className="space-y-2 border rounded-md p-4 bg-muted/20">
+          <PanelLabel>Import / 計時から取込（予定と照合 → 一括編集 → 確定）</PanelLabel>
+          <ImportPanel embedded onCommitted={fetchLive} />
         </div>
       )}
 

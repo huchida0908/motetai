@@ -42,6 +42,7 @@ export interface FuelPoint {
 export interface FuelSeries {
   plan: FuelPoint[];
   actual: FuelPoint[];
+  baseline?: FuelPoint[]; // 比較用の基準系列（計画画面では「保存済み計画」）。未指定なら描画しない
   startFuelL: number;
   tankCapacityL: number;
 }
@@ -323,18 +324,29 @@ function ProgressChart({
 }
 
 // ── 燃料残量推移（横軸=Lap、縦軸=残L。給油で跳ね上がるノコギリ形） ──────────────────────────
-function FuelChart({ fuelSeries }: { fuelSeries: FuelSeries }) {
+export function FuelChart({
+  fuelSeries,
+  labels,
+}: {
+  fuelSeries: FuelSeries;
+  labels?: { plan?: string; actual?: string; baseline?: string };
+}) {
+  const planLabel = labels?.plan ?? '計画';
+  const actualLabel = labels?.actual ?? '実績';
+  const baselineLabel = labels?.baseline ?? '基準';
   // Lap 0 = スタート時の搭載燃料を起点に足す
   const plan = fuelSeries.plan.length > 0 ? [{ lap: 0, fuelL: fuelSeries.startFuelL }, ...fuelSeries.plan] : [];
   const actual = fuelSeries.actual.length > 0 ? [{ lap: 0, fuelL: fuelSeries.startFuelL }, ...fuelSeries.actual] : [];
+  const baseline =
+    fuelSeries.baseline && fuelSeries.baseline.length > 0 ? [{ lap: 0, fuelL: fuelSeries.startFuelL }, ...fuelSeries.baseline] : [];
 
-  if (plan.length === 0 && actual.length === 0) {
+  if (plan.length === 0 && actual.length === 0 && baseline.length === 0) {
     return <div className="h-72 flex items-center justify-center text-muted-foreground text-sm">データがありません</div>;
   }
 
-  const allFuel = [...plan.map((p) => p.fuelL), ...actual.map((p) => p.fuelL)];
+  const allFuel = [...plan.map((p) => p.fuelL), ...actual.map((p) => p.fuelL), ...baseline.map((p) => p.fuelL)];
   const minFuel = Math.min(0, ...allFuel);
-  const maxLap = Math.max(...plan.map((p) => p.lap), ...actual.map((p) => p.lap));
+  const maxLap = Math.max(0, ...plan.map((p) => p.lap), ...actual.map((p) => p.lap), ...baseline.map((p) => p.lap));
 
   return (
     <ResponsiveContainer width="100%" height={288}>
@@ -358,17 +370,33 @@ function FuelChart({ fuelSeries }: { fuelSeries: FuelSeries }) {
           stroke="var(--muted-foreground)"
         />
         <Tooltip
-          formatter={(v: number, name) => [`${v.toFixed(2)} L`, name === 'plan' ? '計画' : '実績']}
+          formatter={(v: number, name) => [`${v.toFixed(2)} L`, name === 'plan' ? planLabel : name === 'baseline' ? baselineLabel : actualLabel]}
           labelFormatter={(l) => (Number(l) === 0 ? 'スタート' : `Lap ${l}`)}
           contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
         />
-        <Legend formatter={(v) => (v === 'plan' ? '計画' : '実績')} wrapperStyle={{ fontSize: 12 }} />
+        <Legend
+          formatter={(v) => (v === 'plan' ? planLabel : v === 'baseline' ? baselineLabel : actualLabel)}
+          wrapperStyle={{ fontSize: 12 }}
+        />
         <ReferenceLine
           y={0}
           stroke={CHART_COLORS.reference}
           strokeDasharray="4 4"
           label={{ value: 'ガス欠', position: 'insideBottomRight', fontSize: 11, fill: CHART_COLORS.reference }}
         />
+        {baseline.length > 0 && (
+          <Line
+            data={baseline}
+            name="baseline"
+            type="linear"
+            dataKey="fuelL"
+            stroke="#94a3b8"
+            strokeWidth={2}
+            strokeDasharray="2 3"
+            dot={false}
+            isAnimationActive={false}
+          />
+        )}
         {plan.length > 0 && (
           <Line
             data={plan}

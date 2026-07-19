@@ -58,7 +58,7 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState('');
   const [newRider, setNewRider] = useState({ name: '', lapMin: '2', lapSec: '26', color: '#3b82f6' });
   // 編集中ライダー（分・秒に分解して保持）。null なら編集していない
-  const [editRider, setEditRider] = useState<{ id: string; name: string; lapMin: string; lapSec: string } | null>(null);
+  const [editRider, setEditRider] = useState<{ id: string; name: string; lapMin: string; lapSec: string; color: string } | null>(null);
 
   // 開始/終了時刻（datetime-local 値）。両方入力するとレース時間(分)を自動計算する
   const [startTime, setStartTime] = useState('');
@@ -143,7 +143,7 @@ export default function SettingsPage() {
   const startEditRider = useCallback((r: Rider) => {
     const min = Math.floor(r.expectedLapTime / 60);
     const sec = Number((r.expectedLapTime - min * 60).toFixed(3));
-    setEditRider({ id: r.id, name: r.name, lapMin: String(min), lapSec: String(sec) });
+    setEditRider({ id: r.id, name: r.name, lapMin: String(min), lapSec: String(sec), color: r.color ?? '#3b82f6' });
   }, []);
 
   const saveEditRider = useCallback(async () => {
@@ -162,7 +162,7 @@ export default function SettingsPage() {
     await fetch(`/api/riders/${editRider.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: editRider.name, expectedLapTime: sec }),
+      body: JSON.stringify({ name: editRider.name, expectedLapTime: sec, color: editRider.color }),
     });
     setEditRider(null);
     await load();
@@ -271,7 +271,10 @@ export default function SettingsPage() {
           <div className="space-y-2">
             {riders.map((r) => (
               <div key={r.id} className="flex items-center gap-3 text-sm flex-wrap">
-                <span className="inline-block w-4 h-4 rounded-full" style={{ backgroundColor: r.color ?? '#999' }} />
+                <span
+                  className="inline-block w-4 h-4 rounded-full"
+                  style={{ backgroundColor: (editRider?.id === r.id ? editRider.color : r.color) ?? '#999' }}
+                />
                 {editRider?.id === r.id ? (
                   <>
                     <Input
@@ -300,6 +303,13 @@ export default function SettingsPage() {
                       aria-label="秒"
                     />
                     <span className="text-muted-foreground">秒</span>
+                    <Input
+                      type="color"
+                      value={editRider.color}
+                      onChange={(e) => setEditRider({ ...editRider, color: e.target.value })}
+                      className="w-12 p-1"
+                      aria-label="色"
+                    />
                     <Button size="sm" onClick={saveEditRider}>保存</Button>
                     <Button variant="ghost" size="sm" onClick={() => setEditRider(null)}>キャンセル</Button>
                   </>

@@ -1,0 +1,194 @@
+- generic [ref=f4e1]:
+  - generic [ref=f4e2]:
+    - navigation [ref=f4e3]:
+      - generic [ref=f4e5]:
+        - generic [ref=f4e6]:
+          - heading "MOTETAI/PIT" [level=1] [ref=f4e7]
+          - paragraph [ref=f4e8]: Endurance Strategy
+        - list [ref=f4e9]:
+          - listitem [ref=f4e10]:
+            - link "ダッシュボード DASHBOARD" [ref=f4e11] [cursor=pointer]:
+              - /url: /
+              - generic [ref=f4e17]:
+                - generic [ref=f4e18]: ダッシュボード
+                - generic [ref=f4e19]: DASHBOARD
+          - listitem [ref=f4e20]:
+            - link "ライブ入力 LIVE TIMING" [ref=f4e21] [cursor=pointer]:
+              - /url: /live
+              - generic [ref=f4e25]:
+                - generic [ref=f4e26]: ライブ入力
+                - generic [ref=f4e27]: LIVE TIMING
+          - listitem [ref=f4e28]:
+            - link "計画 STRATEGY" [ref=f4e29] [cursor=pointer]:
+              - /url: /plan
+              - generic [ref=f4e33]:
+                - generic [ref=f4e34]: 計画
+                - generic [ref=f4e35]: STRATEGY
+          - listitem [ref=f4e36]:
+            - link "スケジュール DAY PLAN" [active] [ref=f4e37] [cursor=pointer]:
+              - /url: /schedule
+              - generic [ref=f4e42]:
+                - generic [ref=f4e43]: スケジュール
+                - generic [ref=f4e44]: DAY PLAN
+          - listitem [ref=f4e45]:
+            - link "設定 SETUP" [ref=f4e46] [cursor=pointer]:
+              - /url: /settings
+              - generic [ref=f4e50]:
+                - generic [ref=f4e51]: 設定
+                - generic [ref=f4e52]: SETUP
+    - main [ref=f4e53]:
+      - generic [ref=f4e56]:
+        - generic [ref=f4e57]:
+          - heading "スケジュール" [level=1] [ref=f4e58]
+          - paragraph [ref=f4e59]: Day Plan ・ もて耐 2026
+        - generic [ref=f4e60]:
+          - generic [ref=f4e62]:
+            - generic [ref=f4e63]: スタート
+            - generic [ref=f4e64]: 未設定
+            - generic [ref=f4e65]: 設定の開始時刻を入力
+          - generic [ref=f4e67]:
+            - generic [ref=f4e68]: チェッカー予想
+            - generic [ref=f4e69]: +419:40
+            - generic [ref=f4e70]: 計画 162 周
+          - generic [ref=f4e72]:
+            - generic [ref=f4e73]: ピット回数
+            - generic [ref=f4e74]: 8 回
+          - generic [ref=f4e76]:
+            - generic [ref=f4e77]: タイヤ交換
+            - generic [ref=f4e78]: 2 回
+            - generic [ref=f4e79]: 🛞 マークのピット
+        - generic [ref=f4e80]: 開始時刻が未設定のため、スタートからの経過時間（+分:秒）で表示しています。「設定」の開始時刻を入力すると実時刻になります
+        - generic [ref=f4e81]:
+          - generic [ref=f4e82]:
+            - generic [ref=f4e83]: Timeline / 本日の進行
+            - paragraph [ref=f4e85]: 計画スティントの時刻展開。ピット行の 🛞 がタイヤ交換ありのピットです
+          - generic [ref=f4e87]:
+            - generic [ref=f4e89]:
+              - generic [ref=f4e90]: +0:00〜+54:31
+              - generic [ref=f4e91]: ST1
+              - generic "もりけん" [ref=f4e92]
+              - generic [ref=f4e93]:
+                - text: 23 周
+                - generic [ref=f4e94]: (Lap 1–23)
+              - generic [ref=f4e95]: Ave 2:21.000
+              - generic [ref=f4e96]: 54:31
+            - generic [ref=f4e98]:
+              - generic [ref=f4e99]:
+                - generic [ref=f4e100]: +54:31〜+58:31
+                - generic [ref=f4e101]: ピットイン
+                - generic [ref=f4e102]: 給油 5.3L
+              - generic [ref=f4e103]:
+                - generic [ref=f4e104]: +58:31〜+94:53
+                - generic [ref=f4e105]: ST2
+                - generic "小林" [ref=f4e106]
+                - generic [ref=f4e107]:
+                  - text: 15 周
+                  - generic [ref=f4e108]: (Lap 24–38)
+                - generic [ref=f4e109]: Ave 2:24.000
+                - generic [ref=f4e110]: 36:22
+            - generic [ref=f4e112]:
+              - generic [ref=f4e113]:
+                - generic [ref=f4e114]: +94:53〜+98:53
+                - generic [ref=f4e115]: ピットイン
+                - generic [ref=f4e116]: 給油 5.3L
+              - generic [ref=f4e117]:
+                - generic [ref=f4e118]: +98:53〜+149:01
+                - generic [ref=f4e119]: ST3
+                - generic "Uchida" [ref=f4e120]
+                - generic [ref=f4e121]:
+                  - text: 21 周
+                  - generic [ref=f4e122]: (Lap 39–59)
+                - generic [ref=f4e123]: Ave 2:22.000
+                - generic [ref=f4e124]: 50:08
+            - generic [ref=f4e126]:
+              - generic [ref=f4e127]:
+                - generic [ref=f4e128]: +149:01〜+153:01
+                - generic [ref=f4e129]: ピットイン
+                - generic [ref=f4e130]: 給油 5.3L
+                - generic [ref=f4e131]: 🛞 タイヤ交換
+              - generic [ref=f4e132]:
+                - generic [ref=f4e133]: +153:01〜+205:11
+                - generic [ref=f4e134]: ST4
+                - generic "もりけん" [ref=f4e135]
+                - generic [ref=f4e136]:
+                  - text: 22 周
+                  - generic [ref=f4e137]: (Lap 60–81)
+                - generic [ref=f4e138]: Ave 2:21.000
+                - generic [ref=f4e139]: 52:10
+            - generic [ref=f4e141]:
+              - generic [ref=f4e142]:
+                - generic [ref=f4e143]: +205:11〜+209:11
+                - generic [ref=f4e144]: ピットイン
+                - generic [ref=f4e145]: 給油 5.3L
+              - generic [ref=f4e146]:
+                - generic [ref=f4e147]: +209:11〜+240:45
+                - generic [ref=f4e148]: ST5
+                - generic "小林" [ref=f4e149]
+                - generic [ref=f4e150]:
+                  - text: 13 周
+                  - generic [ref=f4e151]: (Lap 82–94)
+                - generic [ref=f4e152]: Ave 2:24.000
+                - generic [ref=f4e153]: 31:34
+            - generic [ref=f4e155]:
+              - generic [ref=f4e156]:
+                - generic [ref=f4e157]: +240:45〜+244:45
+                - generic [ref=f4e158]: ピットイン
+                - generic [ref=f4e159]: 給油 5.3L
+              - generic [ref=f4e160]:
+                - generic [ref=f4e161]: +244:45〜+287:47
+                - generic [ref=f4e162]: ST6
+                - generic "Uchida" [ref=f4e163]
+                - generic [ref=f4e164]:
+                  - text: 18 周
+                  - generic [ref=f4e165]: (Lap 95–112)
+                - generic [ref=f4e166]: Ave 2:22.000
+                - generic [ref=f4e167]: 43:02
+            - generic [ref=f4e169]:
+              - generic [ref=f4e170]:
+                - generic [ref=f4e171]: +287:47〜+291:47
+                - generic [ref=f4e172]: ピットイン
+                - generic [ref=f4e173]: 給油 5.3L
+                - generic [ref=f4e174]: 🛞 タイヤ交換
+              - generic [ref=f4e175]:
+                - generic [ref=f4e176]: +291:47〜+332:12
+                - generic [ref=f4e177]: ST7
+                - generic "もりけん" [ref=f4e178]
+                - generic [ref=f4e179]:
+                  - text: 17 周
+                  - generic [ref=f4e180]: (Lap 113–129)
+                - generic [ref=f4e181]: Ave 2:21.000
+                - generic [ref=f4e182]: 40:25
+            - generic [ref=f4e184]:
+              - generic [ref=f4e185]:
+                - generic [ref=f4e186]: +332:12〜+336:12
+                - generic [ref=f4e187]: ピットイン
+                - generic [ref=f4e188]: 給油 5.3L
+              - generic [ref=f4e189]:
+                - generic [ref=f4e190]: +336:12〜+367:46
+                - generic [ref=f4e191]: ST8
+                - generic "小林" [ref=f4e192]
+                - generic [ref=f4e193]:
+                  - text: 13 周
+                  - generic [ref=f4e194]: (Lap 130–142)
+                - generic [ref=f4e195]: Ave 2:24.000
+                - generic [ref=f4e196]: 31:34
+            - generic [ref=f4e198]:
+              - generic [ref=f4e199]:
+                - generic [ref=f4e200]: +367:46〜+371:46
+                - generic [ref=f4e201]: ピットイン
+                - generic [ref=f4e202]: 給油 5.3L
+              - generic [ref=f4e203]:
+                - generic [ref=f4e204]: +371:46〜+419:40
+                - generic [ref=f4e205]: ST9
+                - generic "Uchida" [ref=f4e206]
+                - generic [ref=f4e207]:
+                  - text: 20 周
+                  - generic [ref=f4e208]: (Lap 143–162)
+                - generic [ref=f4e209]: Ave 2:22.000
+                - generic [ref=f4e210]: 47:54
+            - generic [ref=f4e212]:
+              - generic [ref=f4e213]: +419:40
+              - generic [ref=f4e214]: 🏁 チェッカー（計画消化時）
+              - generic [ref=f4e215]: レース時間 420:00
+  - alert [ref=f4e55]
+  - button "Open Next.js Dev Tools" [ref=f4e221] [cursor=pointer]

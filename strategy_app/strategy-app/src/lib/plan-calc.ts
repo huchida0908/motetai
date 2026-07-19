@@ -37,6 +37,8 @@ export interface PlanLapOverride {
   lapNumber: number;
   plannedTimeSec?: number;
   condition?: string;
+  // 走者の上書き（スティントの走者と異なる周のみ設定される）。undefined = 走者は上書きしない
+  riderId?: string | null;
 }
 
 // 計画ラップ 1 周の基準タイム。
@@ -159,6 +161,8 @@ export function applyOverrides(
       ...lap,
       condition: o.condition ?? lap.condition,
       plannedTimeSec: o.plannedTimeSec ?? lap.plannedTimeSec,
+      // riderId は undefined のとき据え置き（null は「未定へ上書き」を意味する）
+      riderId: o.riderId !== undefined ? o.riderId : lap.riderId,
       isOverride: true,
     };
   });

@@ -13,7 +13,18 @@ export function formatLapTime(totalSeconds: number | null | undefined): string {
   return `${sign}${minutes}:${secStr}`;
 }
 
-// 秒 -> "M:SS"（ミリ秒不要な箇所用。例: 残り時間など）
+// 秒 -> "H時間M分"（時間が 0 なら "M分"）。残り時間・経過時間の表示用。
+// 分は切り捨て（残り時間を過大表示しないため）。
+export function formatHourMin(totalSeconds: number | null | undefined): string {
+  if (totalSeconds == null || Number.isNaN(totalSeconds)) return '-';
+  const sign = totalSeconds < 0 ? '−' : '';
+  const totalMin = Math.floor(Math.abs(totalSeconds) / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${sign}${h}時間${m}分` : `${sign}${m}分`;
+}
+
+// 秒 -> "M:SS"（ミリ秒不要な箇所用。例: 開始までのカウントダウンなど）
 export function formatMinSec(totalSeconds: number | null | undefined): string {
   if (totalSeconds == null || Number.isNaN(totalSeconds)) return '-';
   const sign = totalSeconds < 0 ? '-' : '';

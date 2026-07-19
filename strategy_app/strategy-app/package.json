@@ -28,7 +28,7 @@
     "react-dom": "^19.0.0",
     "recharts": "^2.15.3",
     "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
+    "socket.io-client": "^2.5.0",
     "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
