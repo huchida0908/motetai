@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getActiveRace } from '@/lib/live';
+import { realignPlanToActual } from '@/lib/plan';
 
 // 編集済みの実績ラップを「正式な実績」として確定する。
 // 実績(ActualLap)とスティント(Stint)を丸ごと置き換え、
@@ -136,6 +137,13 @@ export async function POST(req: NextRequest) {
       },
       { timeout: 120_000, maxWait: 15_000 },
     );
+
+    // 確定後、計画を実績スティントへ再アンカー（前倒し/後ろ倒し）。失敗しても確定自体は成立させる。
+    try {
+      await realignPlanToActual(race.id);
+    } catch (e) {
+      console.error('計画の自動再アンカー失敗（確定は完了済み）:', e);
+    }
 
     return NextResponse.json({ committed: laps.length, stints: groups.length });
   } catch (error) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getActiveRace } from '@/lib/live';
-import { getPlanState, overridePlanLap } from '@/lib/plan';
+import { getPlanState, overridePlanLap, syncStintRidersFromLaps } from '@/lib/plan';
 
 interface OverrideInput {
   lapNumber: number;
@@ -57,6 +57,11 @@ export async function PATCH(req: NextRequest) {
         clear: o.clear,
       });
     }
+
+    // 走者を触った場合は、スティントの全周が同一走者になったら PlanStint.riderId に反映する
+    // （走行済みスティントの担当を per-lap で丸ごと変えたとき、スティント構成表・次走者にも伝播）
+    const touchedRider = overrides.some((o) => o.riderId !== undefined || o.clear);
+    if (touchedRider) await syncStintRidersFromLaps(race.id);
 
     const state = await getPlanState();
     return NextResponse.json(state);

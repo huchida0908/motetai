@@ -11,7 +11,8 @@ import RaceClockTile from '@/components/RaceClockTile';
 import RiderStintTimer from '@/components/RiderStintTimer';
 import StandingTile from '@/components/StandingTile';
 import ScheduleTimeline, { makeFmtTime, type PlanResponse } from '@/components/ScheduleTimeline';
-import { formatLapTime, formatMinSec } from '@/lib/time';
+import PitEta from '@/components/PitEta';
+import { formatLapTime, formatClockFromMs } from '@/lib/time';
 
 interface LiveRider {
   id: string;
@@ -34,6 +35,7 @@ interface LiveData {
     projectedTotalLaps: number | null;
     lapsUntilNextPit: number;
     nextPitInSec: number | null;
+    nextPitClockMs: number | null;
     nextPlannedPitLap: number | null;
     nextPitTireChange: boolean | null;
     recent3Avg: number | null;
@@ -47,12 +49,14 @@ export default function ShareDashboard({ carno }: { carno: string | null }) {
   const [live, setLive] = useState<LiveData | null>(null);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pitActive, setPitActive] = useState(false); // 自チームがピット中（StandingTile から通知）
 
   const loadLive = useCallback(async () => {
     try {
       const res = await fetch('/api/live', { cache: 'no-store' });
       if (!res.ok) throw new Error('ライブ情報の取得に失敗しました');
-      setLive(await res.json());
+      const data = await res.json();
+      setLive(data);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : '不明なエラー');
@@ -111,11 +115,27 @@ export default function ShareDashboard({ carno }: { carno: string | null }) {
   const planTotalLaps = t?.planTotalLaps ?? null;
   const remainingLaps = planTotalLaps != null ? Math.max(0, planTotalLaps - totalLaps) : null;
 
-  // 次ピット: 給油量・タイヤ交換・予定時刻を計画から算出（時刻は /schedule と同一ロジック）
+  // ピットサイン用の周回数：ピットボード掲示の慣習に合わせて実周回数から1周引く（0未満は0）。
+  const lapsToPitSign = t?.lapsUntilNextPit != null ? Math.max(0, t.lapsUntilNextPit - 1) : null;
+
+  // 次ピット: 給油量・タイヤ交換は計画から算出。
   const nextPit = computeNextPit(currentStint?.stintNumber ?? 0, plan, t?.nextPitTireChange ?? null);
+  // 次ピット時刻は実績追従。live.ts がサーバー側で算出した絶対時刻(nextPitClockMs)をローカルTZで整形する。
+  // nextPitClockMs は「取得時刻 + 残り時間(nextPitInSec)」なので、すぐ下の「約X後」と必ず一致する。
+  // 取得できない場合（レース未開始・以降ピット無しなど）は計画スケジュール時刻にフォールバックする。
+  const pitClock =
+    t?.nextPitClockMs != null ? formatClockFromMs(t.nextPitClockMs) : nextPit.pitClock;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
+      {/* 自チームがピット中: 最上部に大きく表示 */}
+      {pitActive && (
+        <div className="rounded-lg bg-amber-500/20 border-2 border-amber-500/70 px-5 py-4 flex items-center justify-center gap-4 animate-pulse">
+          <span className="font-display text-5xl md:text-6xl font-black text-amber-400 leading-none whitespace-nowrap">🅿 PIT IN</span>
+          <span className="text-lg md:text-xl text-amber-200 font-bold">#{carno ?? ''} ピット作業中</span>
+        </div>
+      )}
+
       {/* ヘッダ */}
       <div className="flex items-center gap-3 flex-wrap">
         <div>
@@ -174,15 +194,15 @@ export default function ShareDashboard({ carno }: { carno: string | null }) {
           </div>
 
           <div>
-            <div className="font-display text-5xl font-bold leading-none">{nextPit.pitClock ?? '—'}</div>
+            <div className="font-display text-5xl font-bold leading-none">{pitClock ?? '—'}</div>
             <div className="mt-1 text-xs text-muted-foreground font-mono">
-              {[
-                t != null ? `あと ${t.lapsUntilNextPit} 周` : '',
-                t?.nextPitInSec != null ? `約 ${formatMinSec(t.nextPitInSec)} 後` : '',
-                t?.nextPlannedPitLap != null ? `計画 Lap ${t.nextPlannedPitLap}` : '',
-              ]
-                .filter(Boolean)
-                .join(' ／ ') || '—'}
+              {/* 「約 X 後」だけ毎秒カウントダウン（あと N 周・計画 Lap は静的） */}
+              <PitEta
+                lapsToPit={lapsToPitSign}
+                clockMs={t?.nextPitClockMs ?? null}
+                plannedLap={t?.nextPlannedPitLap ?? null}
+                plannedLabel="計画 Lap"
+              />
             </div>
           </div>
 
@@ -201,16 +221,30 @@ export default function ShareDashboard({ carno }: { carno: string | null }) {
         </CardContent>
       </Card>
 
-      {/* 現在の走者 ＋ 交代カウントダウン（60分規定） */}
+      {/* 現在の走者 */}
       <Card className="accent-bar">
         <CardContent className="p-4 space-y-3">
           <PanelLabel>Current Rider / 現在の走者</PanelLabel>
           <div className="flex items-center gap-2.5">
             <span className="inline-block h-7 w-1.5 rounded-sm shrink-0" style={{ backgroundColor: riderColor(currentRiderId) }} />
-            <span className="font-display text-4xl font-bold truncate">{riderName(currentRiderId)}</span>
+            <span className="font-display text-3xl font-bold truncate">{riderName(currentRiderId)}</span>
           </div>
-          {/* 残り時間を大きく・走行開始時刻を小さく */}
+
+          {/* 交代までの残りラップ数（大）。Next Pit と同じピットサイン基準（lapsUntilNextPit − 1）で揃える */}
+          <div>
+            <div className="text-[10px] tracking-[0.16em] text-muted-foreground">交代まで残り / Laps to change</div>
+            <div className="font-display text-6xl font-bold leading-none">
+              {lapsToPitSign ?? '—'}
+              <span className="text-2xl text-muted-foreground font-semibold"> 周</span>
+            </div>
+            {t?.nextPlannedPitLap != null && (
+              <div className="mt-1 text-xs text-muted-foreground font-mono">計画: Lap {t.nextPlannedPitLap} で交代</div>
+            )}
+          </div>
+
+          {/* 走行開始からの経過（大）＋走行開始時刻（小） */}
           <RiderStintTimer startedAt={riderStartedAt} variant="hero" />
+
           <div className="text-xs text-muted-foreground font-mono">
             {currentStint ? `第${currentStint.stintNumber}スティント ${t?.lapsInStint ?? 0}周目` : 'スティント未開始'}
             {t?.recent3Avg != null ? ` ・ 直近3周平均 ${formatLapTime(t.recent3Avg)}` : ''}
@@ -232,7 +266,7 @@ export default function ShareDashboard({ carno }: { carno: string | null }) {
       </Card>
 
       {/* 総合順位 */}
-      <StandingTile carno={carno} readOnly />
+      <StandingTile carno={carno} readOnly onPit={setPitActive} />
 
       {/* スケジュール全体 */}
       {plan?.race && <ScheduleTimeline plan={plan} />}

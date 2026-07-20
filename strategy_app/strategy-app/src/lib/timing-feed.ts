@@ -136,6 +136,7 @@ export interface StandingRow {
   gap: string; // 直上（ひとつ前の順位）との差。同一周なら秒(例 "2.967")、周回遅れは "1 LAP"、首位は ""
   classGap: string; // クラス内で直上との差
   totalTimeSec: number | null;
+  pit: boolean; // 計時の PIT フラグ=1（現在ピット中）。走行に戻ると 0 に戻る一時フラグ
 }
 
 // 全チームの順位表（順位付き・差つき）。ダッシュボード表示用。
@@ -156,6 +157,7 @@ export async function fetchStandings(): Promise<StandingRow[]> {
       gap: String(r.Gap ?? '').trim(),
       classGap: String(r.ClassGap ?? '').trim(),
       totalTimeSec: toNum(r.TotalTime),
+      pit: Number(r.PIT) === 1,
     }))
     .filter((t) => t.carno)
     .sort((a, b) => (a.pos ?? 9999) - (b.pos ?? 9999));

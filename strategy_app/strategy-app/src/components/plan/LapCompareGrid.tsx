@@ -32,7 +32,7 @@ export interface CellPatch {
 export interface GridRow {
   lapNumber: number;
   stintNumber: number | null;
-  selectable: boolean; // frozen 等で false
+  selectable: boolean; // 選択可否（false の行は編集対象にできない）
   // 編集対象サイド（plan では計画、actual/compare では実績）の実効値
   riderId: string | null;
   condition: string;
@@ -40,7 +40,7 @@ export interface GridRow {
   timeSec: number | null;
   timeStr?: string; // 編集中の生入力（あれば優先表示）
   edited: boolean; // 上書き/編集済み → ハイライト
-  frozen?: boolean; // plan 走行済み（ロック）
+  frozen?: boolean; // plan 走行済み（実績が付いた周）＝「走行済」表示専用。編集はロックしない
   // plan 表示補助（読み取り専用）
   fuelRemainingL?: number | null;
   cumTimeSec?: number | null;
@@ -449,13 +449,15 @@ function Row({
   showCondEdit: boolean;
 }) {
   const isCompare = mode === 'compare';
-  const editable = editing && r.selectable && !r.frozen;
-  const rowBg = r.frozen
-    ? 'bg-muted/30'
-    : selected
-      ? 'bg-primary/10'
-      : r.edited
-        ? 'bg-amber-500/10'
+  // frozen（走行済＝実績が付いた周）でも編集可能にする。frozen は表示（ラベル/背景）専用。
+  const editable = editing && r.selectable;
+  // 選択中・編集済みのハイライトを frozen 背景より優先（frozen 周を編集中でも変更が分かるように）。
+  const rowBg = selected
+    ? 'bg-primary/10'
+    : r.edited
+      ? 'bg-amber-500/10'
+      : r.frozen
+        ? 'bg-muted/30'
         : r.isExtra
           ? 'bg-emerald-500/10'
           : '';
@@ -478,7 +480,7 @@ function Row({
   return (
     <tr className={`border-b border-border/40 ${rowBg}`}>
       <td className="py-1 px-2">
-        {editing && r.selectable && !r.frozen && (
+        {editing && r.selectable && (
           <input
             type="checkbox"
             checked={selected}

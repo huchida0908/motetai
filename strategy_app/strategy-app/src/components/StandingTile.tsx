@@ -5,7 +5,7 @@
 // 車番の決め方:
 //   - carno prop 指定あり（共有ページ /share）: その車番に固定。入力UI・localStorage は使わない。
 //   - carno prop なし（通常ダッシュボード）: 取込画面と同じ localStorage キー（scrape.carno）を共有し、画面で入力できる。
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ interface Props {
   carno?: string | null;
   // 閲覧専用（共有ページ）。carno が未指定でも入力UI/localStorage を使わず「未設定」表示にする
   readOnly?: boolean;
+  // 自チームがピット中かどうかを親へ通知（共有ダッシュボードの大バナー用）
+  onPit?: (pit: boolean) => void;
 }
 
 interface StandingResponse {
@@ -33,6 +35,7 @@ interface StandingResponse {
     classPos: number | null;
     lap: number | null;
     gap: string;
+    pit?: boolean;
   } | null;
   ahead?: { pos: number | null; carno: string; teamName: string } | null;
   error?: string;
@@ -50,7 +53,7 @@ function gapText(gap: string | undefined): string {
   return `+${g}`;
 }
 
-export default function StandingTile({ carno: fixedCarno, readOnly = false }: Props) {
+export default function StandingTile({ carno: fixedCarno, readOnly = false, onPit }: Props) {
   const hasFixed = fixedCarno != null && fixedCarno.trim() !== '';
   // 「固定モード」= 入力・localStorage を使わない。readOnly（共有ページ）または車番 prop 指定時。
   const controlled = readOnly || hasFixed;
@@ -101,6 +104,16 @@ export default function StandingTile({ carno: fixedCarno, readOnly = false }: Pr
     return () => clearInterval(id);
   }, [activeCarno, fetchStanding]);
 
+  // 自チームがピット中か（計時 PIT フラグ）。親へ通知し、下でも大きく表示する
+  const pitActive = !!(data?.connected && data?.found && data?.our?.pit);
+  const onPitRef = useRef(onPit);
+  useEffect(() => {
+    onPitRef.current = onPit;
+  });
+  useEffect(() => {
+    onPitRef.current?.(pitActive);
+  }, [pitActive]);
+
   const save = () => {
     const v = input.trim();
     if (!v) return;
@@ -110,8 +123,8 @@ export default function StandingTile({ carno: fixedCarno, readOnly = false }: Pr
   };
 
   return (
-    <Card className="overflow-hidden">
-      <div className="h-[3px] bg-gradient-to-r from-primary via-primary/40 to-transparent" />
+    <Card className={`overflow-hidden ${pitActive ? 'ring-2 ring-amber-500/70' : ''}`}>
+      <div className={`h-[3px] ${pitActive ? 'bg-amber-500' : 'bg-gradient-to-r from-primary via-primary/40 to-transparent'}`} />
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-2 gap-2">
           <PanelLabel>Standing / 自チーム順位（総合）</PanelLabel>
@@ -125,6 +138,14 @@ export default function StandingTile({ carno: fixedCarno, readOnly = false }: Pr
             )}
           </div>
         </div>
+
+        {/* ピット中は大きく表示 */}
+        {pitActive && (
+          <div className="mb-3 rounded-md bg-amber-500/20 border-2 border-amber-500/60 px-3 py-2.5 flex items-center gap-3 animate-pulse">
+            <span className="font-display text-3xl md:text-4xl font-black text-amber-400 leading-none whitespace-nowrap">🅿 PIT IN</span>
+            <span className="text-sm text-amber-200 font-mono">#{activeCarno} ピット作業中</span>
+          </div>
+        )}
 
         {editing && !controlled ? (
           <div className="flex items-end gap-2">

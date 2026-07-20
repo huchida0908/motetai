@@ -386,6 +386,22 @@ export default function PlanPage() {
         tireChange: i > 0 && d.tireChange,
       });
     }
+    // 消化済み（走行済み/走行中）スティントの、凍結保存では反映されない変更を検知する。
+    // 反映されないもの: 走行済み(<境界)の周回数・担当、走行中(=境界)の担当。
+    // これらを変えたときは凍結保存だと無視されるため、フル再展開（freezeCompleted=false）へ切り替え、
+    // per-lap の手動上書きは必ず保持する（keepOverrides=true）。消化済み周の計画は引き直される。
+    const consumedStintEdited =
+      boundaryNo > 0 &&
+      drafts.some((d, i) => {
+        const stNo = i + 1;
+        if (stNo > boundaryNo) return false; // 未走行は従来どおり（凍結保存が再展開する）
+        const orig = plan.stints.find((s) => s.stintNumber === stNo);
+        if (orig == null) return false;
+        const riderChanged = (d.riderId || null) !== (orig.riderId || null);
+        // 走行済み(<境界): 周回数 or 担当の変更で再展開が必要。走行中(=境界): 担当変更のみ。
+        return stNo < boundaryNo ? Number(d.plannedLaps) !== orig.plannedLaps || riderChanged : riderChanged;
+      });
+
     setBusy(true);
     setError(null);
     try {
@@ -394,8 +410,8 @@ export default function PlanPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           stints,
-          keepOverrides: keepOverrides && (plan.overrideCount ?? 0) > 0,
-          freezeCompleted: freezeActive,
+          keepOverrides: consumedStintEdited ? true : keepOverrides && (plan.overrideCount ?? 0) > 0,
+          freezeCompleted: freezeActive && !consumedStintEdited,
         }),
       });
       const data = await res.json();
@@ -407,7 +423,7 @@ export default function PlanPage() {
     } finally {
       setBusy(false);
     }
-  }, [plan, drafts, keepOverrides, freezeActive, applyPlan]);
+  }, [plan, drafts, keepOverrides, freezeActive, boundaryNo, applyPlan]);
 
   const generatePlan = useCallback(async () => {
     if (!confirm('現在の計画（手動上書き含む）を破棄して自動生成します。よろしいですか？')) return;
@@ -611,7 +627,8 @@ export default function PlanPage() {
       return {
         lapNumber: l.lapNumber,
         stintNumber: l.stintNumber,
-        selectable: !frozen,
+        // 実績が付いた周（frozen）も編集可能にする。frozen は「走行済」表示（ラベル/背景）にのみ使う。
+        selectable: true,
         riderId: e?.riderId !== undefined ? e.riderId : l.riderId,
         condition: e?.condition ?? l.condition,
         outIn: l.outIn,
@@ -847,8 +864,9 @@ export default function PlanPage() {
         <>
           {freezeActive && (
             <div className="bg-primary/10 border border-primary/30 rounded-md px-4 py-2 text-sm">
-              レース中: Lap {plan.progress!.maxActualLap} まで走行済み。保存しても走行済みの計画周
-              {frozenUpTo > 0 ? `（Lap ${frozenUpTo} まで）` : ''}は変更されません。
+              レース中: Lap {plan.progress!.maxActualLap} まで走行済み。走行済み/走行中スティントの<strong>周回数・担当</strong>を
+              変更すると計画を引き直します（per-lap の上書きは保持）。給油・タイヤは据え置き。
+              下の周単位グリッドでは「走行済」の周も個別に上書きできます。
             </div>
           )}
 
@@ -968,7 +986,7 @@ export default function PlanPage() {
                           <td className="py-1.5 px-2">
                             <select
                               value={d.riderId}
-                              disabled={isFrozen || isBoundary}
+                              title={isFrozen || isBoundary ? '走行済み/走行中スティントの担当を修正（保存でフル再展開・上書きは保持）' : undefined}
                               onChange={(e) => updateDraft(d.key, { riderId: e.target.value })}
                               className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
                             >
@@ -984,7 +1002,6 @@ export default function PlanPage() {
                                 variant="outline"
                                 size="sm"
                                 className="h-9 w-8 p-0 text-base leading-none"
-                                disabled={isFrozen}
                                 onClick={() => stepLaps(d.key, d.plannedLaps, -1)}
                                 title="1周減らす"
                               >
@@ -993,8 +1010,13 @@ export default function PlanPage() {
                               <Input
                                 inputMode="numeric"
                                 value={d.plannedLaps}
-                                disabled={isFrozen}
-                                title={isBoundary && plan.progress?.frozenLapsInBoundary != null ? `${plan.progress.frozenLapsInBoundary}周走行済み` : undefined}
+                                title={
+                                  isFrozen
+                                    ? '走行済みスティントの周回数を修正（保存でフル再展開・上書きは保持）'
+                                    : isBoundary && plan.progress?.frozenLapsInBoundary != null
+                                      ? `${plan.progress.frozenLapsInBoundary}周走行済み`
+                                      : undefined
+                                }
                                 onChange={(e) => updateDraft(d.key, { plannedLaps: e.target.value })}
                                 className="w-14 h-9 font-mono text-center"
                               />
@@ -1002,7 +1024,6 @@ export default function PlanPage() {
                                 variant="outline"
                                 size="sm"
                                 className="h-9 w-8 p-0 text-base leading-none"
-                                disabled={isFrozen}
                                 onClick={() => stepLaps(d.key, d.plannedLaps, 1)}
                                 title="1周増やす"
                               >

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getActiveRace } from '@/lib/live';
+import { realignPlanToActual } from '@/lib/plan';
 
 // ピットイン → 次スティント開始。
 // 現在の未終了スティントを終了し、給油量・次ライダーで新スティントを作る。
@@ -44,6 +45,13 @@ export async function POST(req: NextRequest) {
         note: body.note ?? null,
       },
     });
+
+    // 実ピットに合わせて計画を再アンカー（前倒し/後ろ倒し）。失敗してもピット記録は成立させる。
+    try {
+      await realignPlanToActual(race.id);
+    } catch (e) {
+      console.error('計画の自動再アンカー失敗（ピットは記録済み）:', e);
+    }
 
     return NextResponse.json({ stint }, { status: 201 });
   } catch (error) {

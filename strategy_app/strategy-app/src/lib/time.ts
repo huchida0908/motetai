@@ -34,6 +34,15 @@ export function formatMinSec(totalSeconds: number | null | undefined): string {
   return `${sign}${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+// epoch ms -> "H:MM"（24時間・時は0埋めなし。例: 1500000000000 -> "15:42"）。
+// 絶対時刻（次ピット予定時刻など）の表示用。ローカルタイムゾーンで整形するため
+// クライアント側で呼ぶこと（サーバーで呼ぶと Vercel の UTC で出てしまう）。
+export function formatClockFromMs(ms: number | null | undefined): string {
+  if (ms == null || Number.isNaN(ms)) return '—';
+  const d = new Date(ms);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 // 分・秒（秒は小数可）-> 秒。Excel の「分」列＋「秒」列の入力に対応。
 export function minSecToSeconds(min: number, sec: number): number {
   return (Number(min) || 0) * 60 + (Number(sec) || 0);

@@ -74,6 +74,29 @@ const modeRider = (ids: (string | null)[]): string | null => {
   return best;
 };
 
+// スティント編集を「commit 用の周ごと配列」に展開する（IN/OUT を境界に付与）。手動確定とオート取込で共用。
+function buildCommitBody(stints: StintEdit[], validLaps: EditLap[]) {
+  const laps: { lapNumber: number; lapTimeSec: number; totalTimeSec: number | null; riderId: string | null; condition: string; outIn: 'IN' | 'OUT' | null }[] = [];
+  const refuelByStint: Record<string, number> = {};
+  let idx = 0;
+  stints.forEach((st, si) => {
+    refuelByStint[String(si + 1)] = st.refuelL;
+    for (let i = 0; i < st.lapCount; i++) {
+      const lap = validLaps[idx++];
+      if (!lap) break;
+      laps.push({
+        lapNumber: lap.lapNumber,
+        lapTimeSec: lap.lapTimeSec,
+        totalTimeSec: lap.totalTimeSec,
+        riderId: st.riderId,
+        condition: lap.condition,
+        outIn: i === st.lapCount - 1 && si < stints.length - 1 ? 'IN' : i === 0 && si > 0 ? 'OUT' : null,
+      });
+    }
+  });
+  return { laps, refuelByStint };
+}
+
 // 計時から取得 → 予定と照合 → スティント単位で編集 → 確定 のパネル。
 // 「取込」ページ（フル表示）と「ライブ入力」ページ（embedded 埋め込み）の両方から使う。
 export function ImportPanel({
@@ -97,6 +120,9 @@ export function ImportPanel({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [auto, setAuto] = useState(false); // オート取込 ON/OFF
+  const [lastAutoAt, setLastAutoAt] = useState<number | null>(null);
+  const [autoNote, setAutoNote] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(CARNO_KEY) : null;
@@ -125,12 +151,34 @@ export function ImportPanel({
 
       let nextStints: StintEdit[];
       if (!hardReset && prevStints.length > 0) {
+        // 既存編集を保持。増えた周は末尾スティントに足すが、直前がピット周なら
+        // そこで区切って新スティントを作る（オート中の新規ピットを自動検出。走者は計画準拠）。
         nextStints = prevStints.map((s) => ({ ...s }));
+        const valids = r.laps.filter((l) => l.valid);
         const sum = nextStints.reduce((a, s) => a + s.lapCount, 0);
-        const diff = validCount - sum;
-        if (diff !== 0) {
-          const last = nextStints.length - 1;
-          nextStints[last] = { ...nextStints[last], lapCount: Math.max(1, nextStints[last].lapCount + diff) };
+        if (valids.length > sum) {
+          for (let i = sum; i < valids.length; i++) {
+            const prev = valids[i - 1];
+            if (i > 0 && prev && prev.pit) {
+              nextStints.push({ riderId: valids[i].riderId ?? null, lapCount: 1, refuelL: r.race.tankCapacityL });
+            } else {
+              nextStints[nextStints.length - 1].lapCount += 1;
+            }
+          }
+        } else if (valids.length < sum) {
+          // 実データが減った（稀）: 末尾から吸収
+          let over = sum - valids.length;
+          while (over > 0 && nextStints.length > 0) {
+            const last = nextStints[nextStints.length - 1];
+            if (last.lapCount > over) {
+              last.lapCount -= over;
+              over = 0;
+            } else {
+              over -= last.lapCount;
+              nextStints.pop();
+            }
+          }
+          if (nextStints.length === 0) nextStints = [{ riderId: null, lapCount: valids.length, refuelL: r.race.startFuelL }];
         }
       } else {
         // PIT フラグで区切り、各グループの走者は計画の最頻走者、搭載は 第1=スタート燃料/以降=満タン
@@ -159,8 +207,10 @@ export function ImportPanel({
     [],
   );
 
-  // stints の最新値を副作用（reconcile）から参照するための ref
+  // stints/laps の最新値を副作用（reconcile/オート）から参照するための ref
   const stintsRef = useRef<StintEdit[]>([]);
+  const lapsRef = useRef<EditLap[]>([]);
+  const lastCommittedKeyRef = useRef(''); // 最後に確定した内容キー。新周でも編集でも変化を検知してオート反映
 
   const reconcile = useCallback(
     async (target: string, opts?: { hardReset?: boolean }) => {
@@ -191,6 +241,9 @@ export function ImportPanel({
   useEffect(() => {
     stintsRef.current = stints;
   }, [stints]);
+  useEffect(() => {
+    lapsRef.current = laps;
+  }, [laps]);
 
   useEffect(() => {
     if (carno) reconcile(carno);
@@ -306,6 +359,44 @@ export function ImportPanel({
   const setCondition = (lapNumber: number, condition: string) =>
     setLaps((prev) => prev.map((l) => (l.lapNumber === lapNumber ? { ...l, condition } : l)));
 
+  // 周ごとに「ピットイン（＝走者交代の区切り）」を打つ/外す。
+  // その周を IN（スティント最終周）にし、次周から新スティント＝交代にする。あとから何度でも編集可。
+  // オート中でも保持され、内容が変わるので次の自動反映で実績に登録される。
+  const toggleBoundaryAt = (lapNumber: number) => {
+    setStints((prev) => {
+      let idx = 0;
+      let si = -1;
+      let offset = -1; // スティント内での位置（1 始まり）
+      for (let s = 0; s < prev.length && si < 0; s++) {
+        const c = prev[s].lapCount;
+        for (let i = 0; i < c; i++) {
+          if (validLaps[idx + i]?.lapNumber === lapNumber) {
+            si = s;
+            offset = i + 1;
+            break;
+          }
+        }
+        idx += c;
+      }
+      if (si < 0) return prev;
+      // すでに境界（スティント最終周・末尾以外）なら → 次と結合して区切りを外す
+      if (offset === prev[si].lapCount && si < prev.length - 1) {
+        const merged = { ...prev[si], lapCount: prev[si].lapCount + prev[si + 1].lapCount };
+        return [...prev.slice(0, si), merged, ...prev.slice(si + 2)];
+      }
+      // 全体の最終周は区切れない（次周が無い）
+      if (offset >= prev[si].lapCount) return prev;
+      // 分割: 前=offset周（この周が IN）、後=残り（次周が OUT＝新スティント）
+      const first = { ...prev[si], lapCount: offset };
+      const second = {
+        riderId: prev[si].riderId,
+        lapCount: prev[si].lapCount - offset,
+        refuelL: recon?.race.tankCapacityL ?? prev[si].refuelL,
+      };
+      return [...prev.slice(0, si), first, second, ...prev.slice(si + 1)];
+    });
+  };
+
   const resetToPlan = () => {
     if (!recon) return;
     const built = buildState(recon, [], [], true);
@@ -314,26 +405,9 @@ export function ImportPanel({
     setMessage('計画・実データの初期状態に戻しました');
   };
 
+  // 手動確定: 現在の編集内容で実績を置き換える。
   const commit = useCallback(async () => {
-    // スティント単位の編集を周ごとに展開してサーバーへ
-    const payload: { lapNumber: number; lapTimeSec: number; totalTimeSec: number | null; riderId: string | null; condition: string; outIn: 'IN' | 'OUT' | null }[] = [];
-    const refuelByStint: Record<string, number> = {};
-    let idx = 0;
-    stints.forEach((st, si) => {
-      refuelByStint[String(si + 1)] = st.refuelL;
-      for (let i = 0; i < st.lapCount; i++) {
-        const lap = validLaps[idx++];
-        if (!lap) break;
-        payload.push({
-          lapNumber: lap.lapNumber,
-          lapTimeSec: lap.lapTimeSec,
-          totalTimeSec: lap.totalTimeSec,
-          riderId: st.riderId,
-          condition: lap.condition,
-          outIn: i === st.lapCount - 1 && si < stints.length - 1 ? 'IN' : i === 0 && si > 0 ? 'OUT' : null,
-        });
-      }
-    });
+    const { laps: payload, refuelByStint } = buildCommitBody(stints, validLaps);
     if (payload.length === 0) {
       setError('確定できる有効な周がありません');
       return;
@@ -349,6 +423,7 @@ export function ImportPanel({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '確定に失敗しました');
+      lastCommittedKeyRef.current = JSON.stringify(payload);
       setMessage(`確定しました: ${json.committed}周 / ${json.stints}スティント。ダッシュボードに反映されます。`);
       setError(null);
       await reconcile(carno);
@@ -359,6 +434,51 @@ export function ImportPanel({
       setBusy(false);
     }
   }, [stints, validLaps, carno, reconcile, onCommitted]);
+
+  // オート取込 1 回分: 計時を再取得し、有効周が増えていたら自動で実績へ反映する。
+  const autoImportOnce = useCallback(async () => {
+    const target = carno;
+    if (!target) return;
+    try {
+      const res = await fetch(`/api/scrape/reconcile?carno=${encodeURIComponent(target)}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? '取得に失敗しました');
+      const r = data as ReconResponse;
+      setRecon(r);
+      const built = buildState(r, lapsRef.current, stintsRef.current, false);
+      setLaps(built.laps);
+      setStints(built.stints);
+      setLastUpdated(Date.now());
+      const vlaps = built.laps.filter((l) => l.valid);
+      const { laps: payload, refuelByStint } = buildCommitBody(built.stints, vlaps);
+      const key = JSON.stringify(payload);
+      // 新しい周が増えた時だけでなく、走者や交代（区切り）の編集で内容が変わった時も反映する
+      if (payload.length > 0 && key !== lastCommittedKeyRef.current) {
+        const cres = await fetch('/api/scrape/commit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ laps: payload, refuelByStint }),
+        });
+        const cjson = await cres.json();
+        if (!cres.ok) throw new Error(cjson.error ?? '確定に失敗しました');
+        lastCommittedKeyRef.current = key;
+        setLastAutoAt(Date.now());
+        setAutoNote(`${cjson.committed}周 / ${cjson.stints}スティント`);
+        onCommitted?.();
+      }
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? `オート取込: ${e.message}` : 'オート取込に失敗しました');
+    }
+  }, [carno, buildState, onCommitted]);
+
+  // オート ON の間、15 秒ごとに autoImportOnce を回す。
+  useEffect(() => {
+    if (!auto || !carno) return;
+    autoImportOnce();
+    const id = setInterval(autoImportOnce, 15000);
+    return () => clearInterval(id);
+  }, [auto, carno, autoImportOnce]);
 
   const tank = recon?.race.tankCapacityL ?? 0;
   const startFuel = recon?.race.startFuelL ?? 0;
@@ -519,13 +639,39 @@ export function ImportPanel({
               </p>
 
               {/* アクション */}
-              <div className="flex items-center gap-2 flex-wrap border-t pt-3">
-                <Button onClick={commit} disabled={busy || validLaps.length === 0} className="h-11 font-bold">
-                  この内容で確定（実績を置き換え）
-                </Button>
-                <span className="text-xs text-muted-foreground">{validLaps.length}周 / {stints.length}スティントを実績に反映</span>
-                <div className="flex-1" />
-                <Button variant="ghost" onClick={resetToPlan} className="h-9 text-xs">計画値に戻す</Button>
+              <div className="space-y-2 border-t pt-3">
+                {/* オート取込（主役）: ONの間、新しい周が増えるたびに自動で実績へ反映 */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Button
+                    onClick={() => setAuto((v) => !v)}
+                    variant={auto ? 'default' : 'secondary'}
+                    className={`h-11 font-bold ${auto ? 'bg-emerald-600 hover:bg-emerald-600/90 text-white' : ''}`}
+                  >
+                    {auto ? '⏹ オート取込を停止' : '▶ オート取込を開始'}
+                  </Button>
+                  {auto ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-500">
+                      <span className="live-dot h-2 w-2 rounded-full bg-emerald-500" />
+                      ON ・ 15秒ごとに自動反映
+                      {lastAutoAt
+                        ? ` ・ 最終取込 ${new Date(lastAutoAt).toLocaleTimeString('ja-JP')}${autoNote ? `（${autoNote}）` : ''}`
+                        : ' ・ 新しい周を待機中…'}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      ONにすると #{carno} の周が増えるたび自動で実績登録します（手動確定は不要）
+                    </span>
+                  )}
+                </div>
+                {/* 手動確定（必要な時だけ） */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button onClick={commit} disabled={busy || validLaps.length === 0} variant="outline" className="h-9">
+                    今すぐ手動で確定
+                  </Button>
+                  <span className="text-xs text-muted-foreground">{validLaps.length}周 / {stints.length}スティント</span>
+                  <div className="flex-1" />
+                  <Button variant="ghost" onClick={resetToPlan} className="h-9 text-xs">計画値に戻す</Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -533,7 +679,7 @@ export function ImportPanel({
           {/* 周ごとの確認グリッド（走者は読取専用・路面のみ編集） */}
           <Card>
             <CardHeader className="pb-2">
-              <PanelLabel>Laps / 周ごと（走者はスティント編集で／ここは路面のみ変更）</PanelLabel>
+              <PanelLabel>Laps / 周ごと（「交代」でその周にピットイン＝走者交代の区切り。走者は上のスティントカードで設定）</PanelLabel>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto max-h-[42rem] overflow-y-auto">
@@ -547,7 +693,7 @@ export function ImportPanel({
                       <th className="text-right py-2 px-2 hidden md:table-cell">Δ</th>
                       <th className="text-left py-2 px-2">走者</th>
                       <th className="text-left py-2 px-2">路面</th>
-                      <th className="text-center py-2 px-2">区分</th>
+                      <th className="text-center py-2 px-2">交代/IN</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -576,16 +722,23 @@ export function ImportPanel({
                               ))}
                             </select>
                           </td>
-                          <td className="py-1 px-2 text-center">
-                            {meta?.inLap ? (
-                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] text-white bg-amber-600">IN</span>
-                            ) : meta?.outLap ? (
-                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] border border-border">OUT</span>
-                            ) : l.pit ? (
-                              <span className="text-[10px] text-amber-500" title="計時のPITフラグ">P</span>
-                            ) : (
-                              ''
+                          <td className="py-1 px-2 text-center whitespace-nowrap">
+                            {meta?.outLap && (
+                              <span className="inline-block px-1 py-0.5 rounded text-[10px] border border-border mr-1">OUT</span>
                             )}
+                            <button
+                              onClick={() => toggleBoundaryAt(l.lapNumber)}
+                              disabled={!l.valid}
+                              title="この周でピットイン＝次周から走者交代（もう一度押すと解除）"
+                              className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                meta?.inLap
+                                  ? 'bg-amber-600 text-white border-amber-600'
+                                  : 'text-muted-foreground border-border hover:border-amber-500 hover:text-amber-500'
+                              }`}
+                            >
+                              {meta?.inLap ? 'IN✓' : '交代'}
+                            </button>
+                            {l.pit && <span className="ml-1 text-[10px] text-amber-500" title="計時のPITフラグ">P</span>}
                           </td>
                         </tr>
                       );

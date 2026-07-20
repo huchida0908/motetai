@@ -8,6 +8,9 @@ import LapChart from '@/components/LapChart';
 import RaceClockTile from '@/components/RaceClockTile';
 import RiderStintTimer from '@/components/RiderStintTimer';
 import StandingTile from '@/components/StandingTile';
+import AutoRefresh from '@/components/AutoRefresh';
+import NextPitClock from '@/components/NextPitClock';
+import PitEta from '@/components/PitEta';
 import { PanelLabel } from '@/components/panel-label';
 
 function bankLabel(bankSec: number | null): { text: string; className: string } {
@@ -39,12 +42,17 @@ export default async function Dashboard() {
   }
 
   const { tiles: t, riders, currentStint, recentLaps } = live;
+  // ピットサイン用の周回数：ピットボード掲示の慣習に合わせて実周回数から1周引く（0未満は0）。
+  const lapsToPitSign = Math.max(0, t.lapsUntilNextPit - 1);
   const riderName = (id: string | null) => riders.find((r) => r.id === id)?.name ?? '—';
   const hasPlan = t.planBankSec != null;
   const bank = bankLabel(hasPlan ? t.planBankSec : t.bankSec);
 
   return (
     <div className="space-y-4">
+      {/* サーバーコンポーネントを 10 秒ごとに再取得（実績・ペース・ピット予測を自動更新） */}
+      <AutoRefresh intervalMs={10000} />
+
       {/* ページヘッダ */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
@@ -165,16 +173,20 @@ export default async function Dashboard() {
                   </span>
                 )}
               </div>
-              <div className="font-display text-4xl font-bold">
-                {t.lapsUntilNextPit} <span className="text-lg text-muted-foreground font-semibold">周</span>
+              <div className="flex items-end justify-between gap-2">
+                <div className="font-display text-4xl font-bold leading-none">
+                  {lapsToPitSign} <span className="text-lg text-muted-foreground font-semibold">周</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] tracking-[0.14em] text-muted-foreground">予定時刻</div>
+                  <div className="font-display text-3xl font-bold leading-none">
+                    <NextPitClock ms={t.nextPitClockMs} />
+                  </div>
+                </div>
               </div>
               <div className="text-xs text-muted-foreground font-mono">
-                {[
-                  t.nextPitInSec != null ? `約 ${formatMinSec(t.nextPitInSec)} 後` : '',
-                  t.nextPlannedPitLap != null ? `計画: Lap ${t.nextPlannedPitLap}` : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ／ ') || '—'}
+                {/* 「約 X 後」だけ毎秒カウントダウン（計画 Lap は静的） */}
+                <PitEta clockMs={t.nextPitClockMs} plannedLap={t.nextPlannedPitLap} />
               </div>
               <div className="border-t border-border/70 pt-2 grid grid-cols-2 gap-2">
                 <KV label="残ピット回数" value={t.remainingPits != null ? `${t.remainingPits} 回` : '—'} />

@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
             classPos: our.classPos,
             lap: our.lap,
             gap: our.gap, // 直上（前の順位）との差
+            pit: our.pit, // 現在ピット中か（計時PITフラグ）
           }
         : null,
       ahead: ahead ? { pos: ahead.pos, carno: ahead.carno, teamName: ahead.teamName } : null,

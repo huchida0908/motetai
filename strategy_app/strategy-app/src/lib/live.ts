@@ -154,6 +154,13 @@ export async function getLiveState(nowMs: number) {
         })
       : null;
 
+  // 次ピットまでの残り時間（秒）と、その絶対時刻（epoch ms）。
+  // clock（= nowMs 起点の残り時間）に残り時間を足して「次ピットが起きる実時刻」を求める。
+  // 実クロック・実績周回・実ペースで前方シミュレートした値なので実績に追従する。
+  // 表示側（クライアント）でローカルTZの H:MM に整形する。
+  const nextPitInSec = hasPlanLaps ? planProjection?.nextPitInSec ?? null : projection?.nextPitInSec ?? null;
+  const nextPitClockMs = nextPitInSec != null ? Math.round(nowMs + nextPitInSec * 1000) : null;
+
   // チャート用の系列（計画 vs 実績）
   const series = laps.map((l) => ({
     lap: l.lapNumber,
@@ -269,7 +276,8 @@ export async function getLiveState(nowMs: number) {
         ? planProjection?.projectedTotalLaps ?? null
         : projection?.projectedTotalLaps ?? null,
       remainingPits: hasPlanLaps ? plannedRemainingPits : projection?.remainingPits ?? null,
-      nextPitInSec: hasPlanLaps ? planProjection?.nextPitInSec ?? null : projection?.nextPitInSec ?? null,
+      nextPitInSec,
+      nextPitClockMs,
       bankSec,
       assumedLapSec: race.assumedLapSec,
       planBankSec,

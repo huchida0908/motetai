@@ -206,6 +206,51 @@ export async function savePlanStints(
   });
 }
 
+// レース中、実績スティントの周回数に合わせて計画スティントを再アンカーする（方式B: 計画データを修正し続ける）。
+// - 完了した実績スティント（endedAt != null）に対応する計画スティントは plannedLaps を「実走周回数」に置換。
+// - 走行中＋未来の計画スティントは長さ・走者・給油を保ったまま、周回番号だけ前後にずれる（早く交代=前倒し / 遅い=ところてん後ろ倒し）。
+// 実績スティント番号 = 計画スティント番号で対応づける。変化が無ければ何もしない。
+// ※ ピット記録経路（POST /api/stints・scrape/commit）から呼ぶ。失敗しても呼び出し側で握りつぶし、記録処理自体は止めない。
+export async function realignPlanToActual(raceConfigId: string): Promise<boolean> {
+  const [planStints, actualStints, lapCounts] = await Promise.all([
+    prisma.planStint.findMany({ where: { raceConfigId }, orderBy: { stintNumber: 'asc' } }),
+    prisma.stint.findMany({ where: { raceConfigId }, orderBy: { stintNumber: 'asc' } }),
+    prisma.actualLap.groupBy({ by: ['stintId'], where: { raceConfigId }, _count: { _all: true } }),
+  ]);
+  if (planStints.length === 0 || actualStints.length === 0) return false;
+
+  const countByStintId = new Map(lapCounts.map((c) => [c.stintId, c._count._all]));
+  // 完了した実績スティント stintNumber → 実走周回数（0周は据え置き扱いで除外）
+  const actualDoneLaps = new Map<number, number>();
+  for (const s of actualStints) {
+    if (s.endedAt != null) {
+      const n = s.id ? countByStintId.get(s.id) ?? 0 : 0;
+      if (n > 0) actualDoneLaps.set(s.stintNumber, n);
+    }
+  }
+  if (actualDoneLaps.size === 0) return false;
+
+  // 完了実績のある計画スティントだけ plannedLaps を実走数へ。他は据え置き。
+  let changed = false;
+  const inputs: PlanStintInput[] = planStints.map((s) => {
+    const actual = actualDoneLaps.get(s.stintNumber);
+    if (actual != null && actual !== s.plannedLaps) changed = true;
+    return {
+      stintNumber: s.stintNumber,
+      riderId: s.riderId,
+      plannedLaps: actual != null ? actual : s.plannedLaps,
+      targetLapSec: s.targetLapSec,
+      refuelL: s.refuelL,
+      tireChange: s.tireChange,
+      note: s.note,
+    };
+  });
+  if (!changed) return false; // 計画どおり → 書き換え不要
+
+  await savePlanStints(raceConfigId, inputs, /* keepOverrides */ true, /* freezeCompleted */ false);
+  return true;
+}
+
 // ユーザー入力起因の計画エラー（API は 400 で返す）
 export class PlanInputError extends Error {}
 
@@ -371,4 +416,27 @@ export async function overridePlanLap(
     where: { id: lap.id },
     data: { plannedTimeSec: nextTime, condition: nextCondition, riderId: nextRider, isOverride: true },
   });
+}
+
+// 周単位の走者上書きを「スティント構成」へ反映する。
+// あるスティントの全周の riderId が一致したら、PlanStint.riderId をその走者へ合わせる。
+// （1スティント=1走者しか表せないため、走者が混在するスティントは据え置き。走行済みスティントの
+//  担当を per-lap で丸ごと変えたときに構成表・次走者表示へ伝播させるのが狙い。）
+// 更新があったら true を返す。
+export async function syncStintRidersFromLaps(raceConfigId: string): Promise<boolean> {
+  const [stints, laps] = await Promise.all([
+    prisma.planStint.findMany({ where: { raceConfigId } }),
+    prisma.planLap.findMany({ where: { raceConfigId }, select: { planStintId: true, riderId: true } }),
+  ]);
+  let changed = false;
+  for (const s of stints) {
+    const rs = laps.filter((l) => l.planStintId === s.id).map((l) => l.riderId);
+    if (rs.length === 0) continue;
+    const uniform = rs.every((r) => r === rs[0]); // 全周が同一走者か（null 一致も含む）
+    if (uniform && rs[0] !== s.riderId) {
+      await prisma.planStint.update({ where: { id: s.id }, data: { riderId: rs[0] } });
+      changed = true;
+    }
+  }
+  return changed;
 }

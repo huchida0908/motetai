@@ -1,6 +1,14 @@
+'use client';
+
 // スケジュールタイムライン: 計画スティントを時刻軸に展開する読み取り専用の表示。
 // /schedule ページと共有ダッシュボード（/share）の両方から使い、描画ロジックを一元化する。
-// 時刻は「レース開始時刻（設定の開始時刻。未設定なら経過時間表示） + 計画累積時間」で算出。
+//
+// 時刻は2モード:
+//   - ライブ予測（レース開始後・実ペースあり）: 「今の周回・経過」を起点に、未来の周回を
+//     実際の平均ラップ(avgLapSec)＋ピットロスで前進させて各通過予定時刻を算出（ダッシュボードの
+//     projectRace と同じ考え方）。遅れ/貯金が先の時刻に反映される。実ペースは /api/live を自前で取得。
+//   - 計画（開始前・ペース未計測）: 「開始時刻 ＋ 計画累積時間」でそのまま表示。
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/card';
 import { PanelLabel } from '@/components/panel-label';
 import { formatLapTime, formatMinSec } from '@/lib/time';
@@ -54,10 +62,19 @@ export interface ScheduleRow {
   pitBefore: null | { startSec: number; endSec: number }; // このスティント前のピット作業
 }
 
+// 予測モードで各周の累積時間・その周の所要を差し替えるためのマップ。
+interface RowOverrides {
+  cumByLap: Map<number, number>; // 周完了時の累積秒（レース開始から）
+  estByLap: Map<number, number>; // その周の所要秒
+}
+
 // 計画（stints + 展開済み laps）からスティント時間帯の行を組み立てる。
-export function buildScheduleRows(plan: PlanResponse): ScheduleRow[] {
+// ov を渡すと累積/所要を実測/予測値で差し替える（渡さなければ計画どおり）。
+export function buildScheduleRows(plan: PlanResponse, ov?: RowOverrides): ScheduleRow[] {
   if (!plan.race || plan.stints.length === 0 || plan.laps.length === 0) return [];
   const race = plan.race;
+  const cumOf = (l: SchedulePlanLap) => ov?.cumByLap.get(l.lapNumber) ?? l.cumTimeSec;
+  const estOf = (l: SchedulePlanLap) => ov?.estByLap.get(l.lapNumber) ?? l.plannedTimeSec;
   const byStint = new Map<number, SchedulePlanLap[]>();
   for (const l of plan.laps) {
     const arr = byStint.get(l.stintNumber) ?? [];
@@ -65,28 +82,36 @@ export function buildScheduleRows(plan: PlanResponse): ScheduleRow[] {
     byStint.set(l.stintNumber, arr);
   }
   const sorted = [...plan.stints].sort((a, b) => a.stintNumber - b.stintNumber);
-  return sorted.flatMap((s) => {
+  const rows: ScheduleRow[] = [];
+  let prevRunEnd: number | null = null; // 直前スティントの走行終了（＝ピット入口）
+  for (const s of sorted) {
     const laps = byStint.get(s.stintNumber);
-    if (!laps || laps.length === 0) return [];
+    if (!laps || laps.length === 0) continue;
     const first = laps[0];
     const last = laps[laps.length - 1];
-    // cumTimeSec はピットロス加算後にラップタイムを足した値なので、
-    // 走行開始 = 先頭周の累積 − 先頭周のタイム、ピット開始 = その pitLossSec 前
-    const runStartSec = first.cumTimeSec - first.plannedTimeSec;
-    return [
-      {
-        stint: s,
-        rider: plan.riders.find((r) => r.id === s.riderId) ?? null,
-        runStartSec,
-        runEndSec: last.cumTimeSec,
-        firstLap: first.lapNumber,
-        lastLap: last.lapNumber,
-        laps: laps.length,
-        targetAveSec: s.targetLapSec ?? race.assumedLapSec,
-        pitBefore: s.stintNumber === 1 ? null : { startSec: runStartSec - race.pitLossSec, endSec: runStartSec },
-      },
-    ];
-  });
+    // 走行開始 = 先頭周の累積 − 先頭周の所要
+    const runStartSec = cumOf(first) - estOf(first);
+    // ピット枠 = [直前スティントの走行終了, 走行開始]。実績反映時はこの間隔が実ピット時間になる。
+    // 計画のみのときは直前走行終了 = 走行開始 − 想定ピットロスなので従来と一致。
+    // 直前が無い（データ欠落）場合は従来どおり「走行開始 − 想定ピットロス」でフォールバック。
+    const pitBefore =
+      s.stintNumber === 1
+        ? null
+        : { startSec: prevRunEnd ?? runStartSec - race.pitLossSec, endSec: runStartSec };
+    rows.push({
+      stint: s,
+      rider: plan.riders.find((r) => r.id === s.riderId) ?? null,
+      runStartSec,
+      runEndSec: cumOf(last),
+      firstLap: first.lapNumber,
+      lastLap: last.lapNumber,
+      laps: laps.length,
+      targetAveSec: s.targetLapSec ?? race.assumedLapSec,
+      pitBefore,
+    });
+    prevRunEnd = cumOf(last);
+  }
+  return rows;
 }
 
 // オフセット秒 → 表示文字列。開始時刻があれば実時刻(H:MM)、無ければ経過(+M:SS)。
@@ -99,27 +124,134 @@ export function makeFmtTime(startedAt: string | null): (offsetSec: number) => st
   };
 }
 
+// 符号付き M:SS（+=遅れ / −=前倒し）
+function signedMinSec(sec: number): string {
+  const s = Math.round(sec);
+  if (s === 0) return '±0:00';
+  return (s > 0 ? '+' : '−') + formatMinSec(Math.abs(s));
+}
+
+interface LiveActual {
+  maxLap: number; // 実績のある最終周（＝通算周回数）
+  cumByLap: Map<number, number>; // 周完了時の累積経過秒（レース開始から / 実測）
+  timeByLap: Map<number, number>; // その周の実測ラップタイム
+}
+
+// 実績（実測ラップ）を /api/live から取得。30秒ごとに更新。
+//   - progress.actual: 各周完了時の累積経過秒（公式 TotalTime 基準。実ピット時間も反映）
+//   - series: 各周の実測ラップタイム
+function useLiveActual(): LiveActual | null {
+  const [actual, setActual] = useState<LiveActual | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/live', { cache: 'no-store' });
+        if (!res.ok) return;
+        const j = await res.json();
+        if (!alive || !j?.tiles) return;
+        const cumByLap = new Map<number, number>();
+        for (const p of (j.progress?.actual ?? []) as Array<{ t: number; laps: number }>) {
+          cumByLap.set(p.laps, p.t);
+        }
+        const timeByLap = new Map<number, number>();
+        for (const s of (j.series ?? []) as Array<{ lap: number; timeSec: number }>) {
+          timeByLap.set(s.lap, s.timeSec);
+        }
+        setActual({
+          maxLap: j.tiles.totalLaps ?? 0,
+          cumByLap,
+          timeByLap,
+        });
+      } catch {
+        /* ライブ取得失敗時は計画表示にフォールバック */
+      }
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+  return actual;
+}
+
+// 「最新の実績 ＋ 実績のない部分は計画で再計算」で各周の累積時間・所要を作る。
+//   - 実績のある周（lapNumber <= maxLap）: 実測の累積経過・実測ラップタイムをそのまま使う。
+//   - 実績のない周（lapNumber > maxLap）: 最後の実績周の累積経過を起点に、計画のラップタイム＋
+//     スティント境界のピットロスで前進（＝ここから計画どおり走ったときの予定時刻）。
+// 実測が欠けている周は計画値でフォールバックする。実績が無い/未開始なら null（計画どおり表示）。
+function computeActualPlanOverrides(plan: PlanResponse, actual: LiveActual | null): RowOverrides | null {
+  if (!actual || actual.maxLap <= 0) return null;
+  const laps = [...plan.laps].sort((a, b) => a.lapNumber - b.lapNumber);
+  if (laps.length === 0) return null;
+
+  const maxLap = actual.maxLap;
+  const pit = plan.race?.pitLossSec ?? 0;
+
+  const cumByLap = new Map<number, number>();
+  const estByLap = new Map<number, number>();
+
+  // 実績のある周: 実測の累積・実測ラップタイム（欠損時は計画値へフォールバック）
+  for (const l of laps) {
+    if (l.lapNumber <= maxLap) {
+      cumByLap.set(l.lapNumber, actual.cumByLap.get(l.lapNumber) ?? l.cumTimeSec);
+      estByLap.set(l.lapNumber, actual.timeByLap.get(l.lapNumber) ?? l.plannedTimeSec);
+    }
+  }
+
+  // 起点 = 最後の実績周の累積経過（実測）。無ければ計画累積へフォールバック。
+  const anchorLap = laps.filter((l) => l.lapNumber <= maxLap).pop();
+  let cum = (anchorLap && actual.cumByLap.get(anchorLap.lapNumber)) ?? anchorLap?.cumTimeSec ?? 0;
+
+  // 実績のない周: 計画のラップタイムで前進（スティント境界でピットロス加算）
+  const future = laps.filter((l) => l.lapNumber > maxLap);
+  let prevStint = anchorLap?.stintNumber ?? future[0]?.stintNumber ?? null;
+  for (const l of future) {
+    if (prevStint != null && l.stintNumber !== prevStint) cum += pit;
+    prevStint = l.stintNumber;
+    cum += l.plannedTimeSec;
+    cumByLap.set(l.lapNumber, cum);
+    estByLap.set(l.lapNumber, l.plannedTimeSec);
+  }
+  return { cumByLap, estByLap };
+}
+
 export default function ScheduleTimeline({ plan }: { plan: PlanResponse }) {
+  const actual = useLiveActual();
   if (!plan.race) return null; // 呼び出し側で「レースなし」を扱う想定
   const race = plan.race;
-  const rows = buildScheduleRows(plan);
+
+  const overrides = computeActualPlanOverrides(plan, actual);
+  const merged = overrides != null; // 実績を反映しているか（実績＋計画）
+  const rows = buildScheduleRows(plan, overrides ?? undefined);
   const baseMs = race.startedAt ? new Date(race.startedAt).getTime() : null;
   const fmtTime = makeFmtTime(race.startedAt);
 
   const tireChanges = rows.filter((r) => r.stint.tireChange && r.pitBefore).length;
-  const maxActualLap = plan.progress?.maxActualLap ?? 0;
+  const maxActualLap = actual?.maxLap ?? plan.progress?.maxActualLap ?? 0;
   // 現在走行中のスティント = 次に走る周（実績+1周目）を含むスティント
   const currentStintNo =
     maxActualLap > 0
       ? rows.find((r) => maxActualLap + 1 >= r.firstLap && maxActualLap + 1 <= r.lastLap)?.stint.stintNumber ?? null
       : null;
 
+  // チェッカー（最終行の走行終了）＝ 予測 or 計画。計画比の差も出す
+  const planFinishSec = plan.totals.totalTimeSec;
+  const finishSec = rows.length > 0 ? rows[rows.length - 1].runEndSec : planFinishSec;
+  const finishDelta = finishSec - planFinishSec;
+
   return (
     <div className="space-y-4">
       {/* サマリー */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Summary label="スタート" value={baseMs != null ? fmtTime(0) : '未設定'} sub={baseMs == null ? '設定の開始時刻を入力' : undefined} />
-        <Summary label="チェッカー予想" value={rows.length > 0 ? fmtTime(plan.totals.totalTimeSec) : '—'} sub={`計画 ${plan.totals.totalLaps} 周`} />
+        <Summary
+          label={merged ? 'チェッカー予測' : 'チェッカー予想'}
+          value={rows.length > 0 ? fmtTime(finishSec) : '—'}
+          sub={merged ? `計画比 ${signedMinSec(finishDelta)}（+=遅れ）` : `計画 ${plan.totals.totalLaps} 周`}
+        />
         <Summary label="ピット回数" value={`${plan.totals.pitCount} 回`} />
         <Summary label="タイヤ交換" value={`${tireChanges} 回`} sub={tireChanges > 0 ? '🛞 マークのピット' : undefined} />
       </div>
@@ -133,8 +265,19 @@ export default function ScheduleTimeline({ plan }: { plan: PlanResponse }) {
       {/* タイムライン */}
       <Card>
         <CardHeader className="pb-2 space-y-1">
-          <PanelLabel>Timeline / 本日の進行</PanelLabel>
-          <CardDescription>計画スティントの時刻展開。PIT 行のタイヤ列「🛞 交換」がタイヤ交換ありのピットです</CardDescription>
+          <div className="flex items-center gap-2">
+            <PanelLabel>Timeline / 本日の進行</PanelLabel>
+            {merged && (
+              <span className="inline-flex items-center gap-1 rounded-sm bg-primary/15 text-primary border border-primary/40 px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap">
+                ● 実績反映
+              </span>
+            )}
+          </div>
+          <CardDescription>
+            {merged
+              ? '実績のある周は実測時刻、それ以降は計画どおりに再計算した予定時刻です。実績が増えるたび自動更新します'
+              : '計画スティントの時刻展開（計画どおりの予定時刻）。PIT 行のタイヤ列「🛞 交換」がタイヤ交換ありのピットです'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (
@@ -165,10 +308,10 @@ export default function ScheduleTimeline({ plan }: { plan: PlanResponse }) {
                   })}
                   {/* チェッカー行 */}
                   <tr className="border-t-2 border-border">
-                    <td className="py-2.5 px-2 font-mono font-bold whitespace-nowrap">{fmtTime(plan.totals.totalTimeSec)}</td>
+                    <td className="py-2.5 px-2 font-mono font-bold whitespace-nowrap">{fmtTime(finishSec)}</td>
                     <td className="py-2.5 px-2"></td>
                     <td className="py-2.5 px-2 font-display text-lg font-bold whitespace-nowrap" colSpan={4}>
-                      🏁 チェッカー（計画消化時）
+                      🏁 チェッカー（{merged ? '実績＋計画' : '計画消化時'}）
                     </td>
                     <td className="py-2.5 px-2 text-right font-mono text-muted-foreground whitespace-nowrap" colSpan={2}>
                       レース時間 {formatMinSec(plan.totals.raceDurationSec)}
